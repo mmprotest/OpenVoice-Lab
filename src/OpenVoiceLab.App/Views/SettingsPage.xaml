@@ -1,0 +1,25 @@
+<Page
+    x:Class="OpenVoiceLab.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Spacing="12" Padding="24">
+            <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" />
+            <ComboBox Header="Default Backend">
+                <ComboBoxItem Content="Auto" />
+                <ComboBoxItem Content="CPU" />
+                <ComboBoxItem Content="CUDA" />
+            </ComboBox>
+            <ComboBox Header="Default Model">
+                <ComboBoxItem Content="0.6B" />
+                <ComboBoxItem Content="1.7B" />
+            </ComboBox>
+            <ToggleSwitch Header="Retain reference audio" OffContent="Off" OnContent="On" />
+            <Button Content="Delete all data" />
+            <TextBlock Text="Engine Log" FontWeight="SemiBold" />
+            <TextBox AcceptsReturn="True" Height="120" TextWrapping="Wrap" />
+            <TextBlock Text="About" FontWeight="SemiBold" />
+            <TextBlock Text="OpenVoice Lab is not affiliated with ElevenLabs." />
+        </StackPanel>
+    </ScrollViewer>
+</Page>
