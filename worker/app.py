@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import soundfile as sf
@@ -22,8 +22,19 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 
 from model_manager import ModelManager
+from audio_utils import resample_audio
+from prompt_storage import load_clone_prompt_safe, save_clone_prompt_safe
 from storage import Database, get_paths, read_json, write_json
-from text_pipeline import apply_pronunciation, chunk_text, hints_to_style, parse_ssml_lite, stitch_audio
+from text_pipeline import (
+    apply_pronunciation,
+    break_to_seconds,
+    chunk_text,
+    hints_to_style,
+    insert_silence,
+    parse_break_sentinels,
+    parse_ssml_lite,
+    stitch_audio,
+)
 from tts_engine import TtsEngine
 
 
@@ -140,46 +151,6 @@ def _apply_text_pipeline(request: TtsRequest) -> Tuple[str, Optional[str]]:
     return text, derived_style
 
 
-def _generate_custom_voice_chunks(
-    model,
-    chunks: Iterable[str],
-    voice_name: str,
-    language: str,
-    style: Optional[str],
-) -> Tuple[List[np.ndarray], int]:
-    audio_chunks: List[np.ndarray] = []
-    sample_rate = DEFAULT_SAMPLE_RATE
-    for chunk in chunks:
-        wavs, sample_rate = model.generate_custom_voice(
-            text=chunk,
-            speaker=voice_name,
-            language=language,
-            instruct=style or "",
-            non_streaming_mode=True,
-        )
-        audio_chunks.append(wavs[0])
-    return audio_chunks, sample_rate
-
-
-def _generate_voice_clone_chunks(
-    model,
-    chunks: Iterable[str],
-    prompt,
-    language: str,
-) -> Tuple[List[np.ndarray], int]:
-    audio_chunks: List[np.ndarray] = []
-    sample_rate = DEFAULT_SAMPLE_RATE
-    for chunk in chunks:
-        wavs, sample_rate = model.generate_voice_clone(
-            text=chunk,
-            language=language,
-            voice_clone_prompt=prompt,
-            non_streaming_mode=True,
-        )
-        audio_chunks.append(wavs[0])
-    return audio_chunks, sample_rate
-
-
 def _resolve_voice_meta(voice_id: str) -> Tuple[str, Optional[Path]]:
     if voice_id.startswith("preset::"):
         return "preset", None
@@ -190,10 +161,29 @@ def _resolve_voice_meta(voice_id: str) -> Tuple[str, Optional[Path]]:
 
 
 def _load_clone_prompt(voice_path: Path):
-    prompt_path = voice_path / "clone_prompt.pt"
-    if not prompt_path.exists():
-        raise HTTPException(status_code=404, detail="Clone prompt not found")
-    return torch.load(prompt_path, map_location="cpu")
+    safe_path = voice_path / "clone_prompt.json"
+    legacy_path = voice_path / "clone_prompt.pt"
+    if safe_path.exists():
+        try:
+            return load_clone_prompt_safe(voice_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to load safe clone prompt from %s: %s", voice_path, exc)
+            raise HTTPException(status_code=500, detail="Failed to load clone prompt") from exc
+    if legacy_path.exists():
+        if os.getenv("OPENVOICELAB_ALLOW_UNSAFE_TORCH_LOAD") == "1":
+            logger.warning("Migrating legacy clone prompt at %s", legacy_path)
+            prompt = torch.load(legacy_path, map_location="cpu")
+            save_clone_prompt_safe(voice_path, prompt)
+            legacy_path.unlink(missing_ok=True)
+            return prompt
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Legacy prompt format found. Recreate the voice or set "
+                "OPENVOICELAB_ALLOW_UNSAFE_TORCH_LOAD=1 once to migrate."
+            ),
+        )
+    raise HTTPException(status_code=404, detail="Clone prompt not found")
 
 
 async def _ensure_wav_audio(upload: UploadFile) -> Tuple[np.ndarray, int]:
@@ -233,17 +223,12 @@ async def _ensure_wav_audio(upload: UploadFile) -> Tuple[np.ndarray, int]:
     if audio.ndim > 1:
         audio = np.mean(audio, axis=1)
     if sr != DEFAULT_SAMPLE_RATE:
-        import librosa
-
-        audio = librosa.resample(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
+        audio = resample_audio(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
         sr = DEFAULT_SAMPLE_RATE
     return audio.astype(np.float32), sr
 
 
 def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str, Optional[str]]:
-    text, derived_style = _apply_text_pipeline(request)
-    style = ", ".join(filter(None, [request.style, derived_style])) if request.style or derived_style else None
-    chunks = chunk_text(text)
     audio_chunks: List[np.ndarray] = []
     sample_rate = request.sample_rate
 
@@ -251,18 +236,72 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str,
     if voice_kind == "preset":
         voice_name = request.voice_id.split("::", 1)[1]
         model_id = engine.model_manager.resolve_model_id("custom_voice", request.model_size)
+        def _run(model):
+            text, derived_style = _apply_text_pipeline(request)
+            combined_style = ", ".join(filter(None, [request.style, derived_style])) if request.style or derived_style else None
+            segments = parse_break_sentinels(text)
+            audio_chunks_local: List[np.ndarray] = []
+            sample_rate_local = DEFAULT_SAMPLE_RATE
+            for kind, value in segments:
+                if kind == "text":
+                    for chunk in chunk_text(value):
+                        if not chunk.strip():
+                            continue
+                        wavs, sample_rate_local = model.generate_custom_voice(
+                            text=chunk,
+                            speaker=voice_name,
+                            language=request.language,
+                            instruct=combined_style or "",
+                            non_streaming_mode=True,
+                        )
+                        audio_chunks_local.append(wavs[0])
+                elif kind == "break":
+                    seconds = break_to_seconds(value)
+                    audio_chunks_local.append(insert_silence(sample_rate_local, seconds))
+            return audio_chunks_local, sample_rate_local
+
         (audio_chunks, sample_rate), backend_used, warning = engine.run_with_backend(
             model_id,
             request.backend,
-            lambda model: _generate_custom_voice_chunks(model, chunks, voice_name, request.language, style),
+            _run,
         )
     else:
         prompt = _load_clone_prompt(voice_path)
         model_id = engine.model_manager.resolve_model_id("base", request.model_size)
+        def _run(model):
+            text, _ = _apply_text_pipeline(request)
+            segments = parse_break_sentinels(text)
+            audio_chunks_local: List[np.ndarray] = []
+            sample_rate_local = DEFAULT_SAMPLE_RATE
+            for kind, value in segments:
+                if kind == "text":
+                    for chunk in chunk_text(value):
+                        if not chunk.strip():
+                            continue
+                        try:
+                            wavs, sample_rate_local = model.generate_voice_clone(
+                                text=chunk,
+                                language=request.language,
+                                voice_clone_prompt=prompt,
+                                non_streaming_mode=True,
+                            )
+                        except TypeError as exc:
+                            if isinstance(prompt, list) and prompt and isinstance(prompt[0], dict):
+                                raise RuntimeError(
+                                    "Voice clone prompt reconstruction failed; "
+                                    f"type mismatch: {exc}"
+                                ) from exc
+                            raise
+                        audio_chunks_local.append(wavs[0])
+                elif kind == "break":
+                    seconds = break_to_seconds(value)
+                    audio_chunks_local.append(insert_silence(sample_rate_local, seconds))
+            return audio_chunks_local, sample_rate_local
+
         (audio_chunks, sample_rate), backend_used, warning = engine.run_with_backend(
             model_id,
             request.backend,
-            lambda model: _generate_voice_clone_chunks(model, chunks, prompt, request.language),
+            _run,
         )
     return audio_chunks, sample_rate, backend_used, warning
 
@@ -270,6 +309,9 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str,
 def _synthesize(request: TtsRequest) -> Tuple[np.ndarray, int, str, Optional[str]]:
     audio_chunks, sample_rate, backend_used, warning = _synthesize_chunks(request)
     stitched = stitch_audio(audio_chunks, sample_rate)
+    if sample_rate != request.sample_rate:
+        stitched = resample_audio(stitched, orig_sr=sample_rate, target_sr=request.sample_rate)
+        sample_rate = request.sample_rate
     return stitched, sample_rate, backend_used, warning
 
 
@@ -412,7 +454,7 @@ async def voices_clone(
 
     audio_np, sr = await _ensure_wav_audio(audio)
     prompt = engine.create_clone_prompt((audio_np, sr), ref_text, model_size, backend)
-    torch.save(prompt, voice_path / "clone_prompt.pt")
+    save_clone_prompt_safe(voice_path, prompt)
 
     if keep_ref_audio:
         ref_path = voice_path / "ref_audio.wav"
@@ -440,7 +482,7 @@ async def voices_design(payload: VoiceDesignRequest) -> Dict[str, str]:
     preview_path = voice_path / "preview.wav"
     sf.write(str(preview_path), design.audio, design.sample_rate, subtype="PCM_16")
     prompt = engine.create_clone_prompt((design.audio, design.sample_rate), payload.seed_text, payload.model_size, payload.backend)
-    torch.save(prompt, voice_path / "clone_prompt.pt")
+    save_clone_prompt_safe(voice_path, prompt)
     return {"voiceId": voice_id}
 
 
@@ -501,13 +543,25 @@ async def tts_stream(request: TtsRequest):
     audio_chunks, sample_rate, _, _ = _synthesize_chunks(request)
 
     def generator():
+        target_sample_rate = request.sample_rate
+        frame_samples = max(1, int(target_sample_rate * 0.02))
         for chunk in audio_chunks:
+            if sample_rate != target_sample_rate:
+                chunk = resample_audio(chunk, orig_sr=sample_rate, target_sr=target_sample_rate)
             audio_int16 = np.clip(chunk, -1.0, 1.0)
             audio_int16 = (audio_int16 * 32767).astype(np.int16)
-            yield audio_int16.tobytes()
-            time.sleep(0.01)
+            raw = audio_int16.tobytes()
+            frame_bytes = frame_samples * 2
+            for start in range(0, len(raw), frame_bytes):
+                frame = raw[start : start + frame_bytes]
+                yield frame
+                time.sleep(frame_samples / target_sample_rate)
 
-    headers = {"X-Sample-Rate": str(sample_rate)}
+    headers = {
+        "X-Sample-Rate": str(request.sample_rate),
+        "X-PCM-Format": "s16le",
+        "X-Channels": "1",
+    }
     return StreamingResponse(generator(), media_type="application/octet-stream", headers=headers)
 
 

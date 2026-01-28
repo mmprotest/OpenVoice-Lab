@@ -11,13 +11,17 @@ class SsmlHint:
     value: str
 
 
+BREAK_SENTINEL_PREFIX = "[[BREAK:"
+BREAK_SENTINEL_SUFFIX = "]]"
+
+
 def parse_ssml_lite(text: str) -> Tuple[str, List[SsmlHint]]:
     hints: List[SsmlHint] = []
 
     def _break(match: re.Match) -> str:
         time_value = match.group(1)
         hints.append(SsmlHint(kind="break", value=time_value))
-        return " "
+        return f" {BREAK_SENTINEL_PREFIX}{time_value}{BREAK_SENTINEL_SUFFIX} "
 
     def _prosody(match: re.Match) -> str:
         rate = match.group(1)
@@ -41,6 +45,36 @@ def parse_ssml_lite(text: str) -> Tuple[str, List[SsmlHint]]:
     )
     text = re.sub(r"<[^>]+>", "", text)
     return text.strip(), hints
+
+
+def parse_break_sentinels(text: str) -> List[Tuple[str, str]]:
+    pattern = re.compile(r"\[\[BREAK:(.*?)\]\]")
+    results: List[Tuple[str, str]] = []
+    last_end = 0
+    for match in pattern.finditer(text):
+        if match.start() > last_end:
+            results.append(("text", text[last_end:match.start()]))
+        results.append(("break", match.group(1)))
+        last_end = match.end()
+    if last_end < len(text):
+        results.append(("text", text[last_end:]))
+    return results
+
+
+def break_to_seconds(value: str) -> float:
+    value = value.strip().lower()
+    if value.endswith("ms"):
+        return float(value[:-2]) / 1000.0
+    if value.endswith("s"):
+        return float(value[:-1])
+    raise ValueError(f"Unsupported break time format: {value}")
+
+
+def insert_silence(sample_rate: int, seconds: float) -> np.ndarray:
+    if seconds <= 0:
+        return np.array([], dtype=np.float32)
+    samples = int(round(sample_rate * seconds))
+    return np.zeros(samples, dtype=np.float32)
 
 
 def hints_to_style(hints: Iterable[SsmlHint]) -> str:
