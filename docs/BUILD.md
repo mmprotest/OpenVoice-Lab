@@ -4,6 +4,7 @@
 - Windows 11
 - Python 3.11+
 - .NET 8 SDK
+- (Optional) NVIDIA CUDA drivers + matching PyTorch CUDA build
 
 ## Worker Setup
 1. Open PowerShell in `worker/`.
@@ -16,10 +17,23 @@
    ```powershell
    pip install -r requirements.txt
    ```
-4. Run the worker:
+4. (Optional CUDA) install a CUDA build of torch:
+   ```powershell
+   pip install torch==2.3.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+   ```
+   You can also use `worker/requirements-cuda.txt` as a reminder.
+5. Run the worker:
    ```powershell
    uvicorn app:app --host 127.0.0.1 --port 23456
    ```
+
+## Model download
+Models are stored in `%LOCALAPPDATA%\OpenVoiceLab\models\`.
+Download by calling the app or:
+```powershell
+curl -X POST http://127.0.0.1:23456/models/download -H "Content-Type: application/json" -d "{\"model_id\":\"Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice\"}"
+```
+Expect several GB of disk usage for all sizes.
 
 ## WinUI App
 1. Open `OpenVoiceLab.sln` in Visual Studio 2022.

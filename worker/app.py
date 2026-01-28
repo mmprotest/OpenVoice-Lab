@@ -1,65 +1,59 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
+import shutil
+import tempfile
 import time
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
+import soundfile as sf
+import torch
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from huggingface_hub import snapshot_download
 from pydantic import BaseModel
+from pydantic import ConfigDict
 
-from text_pipeline import apply_pronunciation, chunk_text, parse_ssml_lite, stitch_audio
-from storage import get_paths, read_json, write_json
-
-
-APP_VERSION = "0.1.0"
-
-
-@dataclass
-class ModelInfo:
-    model_id: str
-    size: str
+from model_manager import ModelManager
+from storage import Database, get_paths, read_json, write_json
+from text_pipeline import apply_pronunciation, chunk_text, hints_to_style, parse_ssml_lite, stitch_audio
+from tts_engine import TtsEngine
 
 
-class ModelManager:
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.cache: Dict[str, Path] = {}
-
-    def get_model_path(self, model_id: str) -> Optional[Path]:
-        return self.cache.get(model_id)
-
-    def download(self, model_id: str) -> Path:
-        local_dir = self.root / model_id.replace("/", "_")
-        local_dir.mkdir(parents=True, exist_ok=True)
-        path = snapshot_download(repo_id=model_id, local_dir=str(local_dir), resume_download=True)
-        self.cache[model_id] = Path(path)
-        return Path(path)
+APP_VERSION = "1.0.0"
+DEFAULT_SAMPLE_RATE = 24000
 
 
-class TtsRequest(BaseModel):
+def _to_camel(string: str) -> str:
+    parts = string.split("_")
+    return parts[0] + "".join(word.capitalize() for word in parts[1:])
+
+
+class ApiModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, alias_generator=_to_camel)
+
+
+class TtsRequest(ApiModel):
     voice_id: str
     text: str
     language: str
     style: Optional[str] = None
     model_size: str
     backend: str
-    sample_rate: int
+    sample_rate: int = DEFAULT_SAMPLE_RATE
     enable_ssml_lite: bool = True
     pronunciation_profile_id: Optional[str] = None
     project_id: Optional[str] = None
 
 
-class VoiceDesignRequest(BaseModel):
+class VoiceDesignRequest(ApiModel):
     name: str
     description: str
     seed_text: str
@@ -67,19 +61,19 @@ class VoiceDesignRequest(BaseModel):
     backend: str
 
 
-class ProjectCreateRequest(BaseModel):
+class ProjectCreateRequest(ApiModel):
     name: str
 
 
-class PronunciationProfileCreate(BaseModel):
+class PronunciationProfileCreate(ApiModel):
     name: str
 
 
-class PronunciationProfileUpdate(BaseModel):
+class PronunciationProfileUpdate(ApiModel):
     entries: List[Dict[str, str]]
 
 
-class VoicePatchRequest(BaseModel):
+class VoicePatchRequest(ApiModel):
     name: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -92,14 +86,10 @@ log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)
 logger.addHandler(log_handler)
 
 model_manager = ModelManager(paths.models)
+engine = TtsEngine(model_manager)
+db = Database(paths.db)
 
 app = FastAPI(title="OpenVoiceLab Worker", version=APP_VERSION)
-
-
-PRESET_VOICES = [
-    {"voice_id": "preset_qwen_customvoice_a", "name": "Qwen CustomVoice A", "type": "preset"},
-    {"voice_id": "preset_qwen_customvoice_b", "name": "Qwen CustomVoice B", "type": "preset"},
-]
 
 
 def _job_id() -> str:
@@ -115,52 +105,141 @@ def _voice_dir(voice_id: str) -> Path:
 
 
 def _save_history(entry: Dict[str, str]) -> None:
-    write_json(paths.history / f"{entry['job_id']}.json", entry)
+    db.add_history(entry)
 
 
 def _load_pronunciation(profile_id: Optional[str]) -> List[Dict[str, str]]:
     if not profile_id:
         return []
-    profile_path = paths.pronunciation / f"{profile_id}.json"
-    data = read_json(profile_path)
-    return data.get("entries", [])
-
-
-def _generate_tone(duration_s: float, sample_rate: int) -> np.ndarray:
-    t = np.linspace(0, duration_s, int(sample_rate * duration_s), endpoint=False)
-    return 0.2 * np.sin(2 * np.pi * 220 * t).astype(np.float32)
+    profiles = db.list_pronunciation_profiles()
+    for profile in profiles:
+        if profile["profile_id"] == profile_id:
+            return profile.get("entries", [])
+    return []
 
 
 def _write_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:
-    import wave
-
     path.parent.mkdir(parents=True, exist_ok=True)
-    audio_int16 = np.clip(audio, -1.0, 1.0)
-    audio_int16 = (audio_int16 * 32767).astype(np.int16)
-    with wave.open(str(path), "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(audio_int16.tobytes())
+    sf.write(str(path), audio, sample_rate, subtype="PCM_16")
 
 
-def _apply_text_pipeline(request: TtsRequest) -> str:
+def _camelize_keys(data: Dict[str, object]) -> Dict[str, object]:
+    return {_to_camel(key): value for key, value in data.items()}
+
+
+def _apply_text_pipeline(request: TtsRequest) -> Tuple[str, Optional[str]]:
     text = request.text
+    derived_style = None
     if request.enable_ssml_lite:
-        text, _ = parse_ssml_lite(text)
+        text, hints = parse_ssml_lite(text)
+        derived_style = hints_to_style(hints) or None
     entries = _load_pronunciation(request.pronunciation_profile_id)
     replacements = [(entry["from"], entry["to"]) for entry in entries]
     if replacements:
         text = apply_pronunciation(text, replacements)
-    return text
+    return text, derived_style
 
 
-def _synthesize(request: TtsRequest) -> np.ndarray:
-    text = _apply_text_pipeline(request)
+def _resolve_voice_meta(voice_id: str) -> Tuple[str, Optional[Path]]:
+    if voice_id.startswith("preset::"):
+        return "preset", None
+    voice_path = _voice_dir(voice_id)
+    if not voice_path.exists():
+        raise HTTPException(status_code=404, detail="Voice not found")
+    return "user", voice_path
+
+
+def _load_clone_prompt(voice_path: Path):
+    prompt_path = voice_path / "clone_prompt.pt"
+    if not prompt_path.exists():
+        raise HTTPException(status_code=404, detail="Clone prompt not found")
+    return torch.load(prompt_path, map_location="cpu")
+
+
+async def _ensure_wav_audio(upload: UploadFile) -> Tuple[np.ndarray, int]:
+    suffix = Path(upload.filename or "").suffix.lower()
+    data = await upload.read()
+    if suffix == ".wav":
+        with io.BytesIO(data) as buffer:
+            audio, sr = sf.read(buffer, dtype="float32")
+    else:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise HTTPException(status_code=400, detail="Non-wav input requires ffmpeg installed")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as src:
+            src.write(data)
+            src_path = src.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as dst:
+            dst_path = dst.name
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-i",
+            src_path,
+            "-ac",
+            "1",
+            "-ar",
+            str(DEFAULT_SAMPLE_RATE),
+            dst_path,
+        ]
+        try:
+            result = os.spawnv(os.P_WAIT, ffmpeg, cmd)
+            if result != 0:
+                raise HTTPException(status_code=400, detail="ffmpeg failed to decode audio")
+            audio, sr = sf.read(dst_path, dtype="float32")
+        finally:
+            Path(src_path).unlink(missing_ok=True)
+            Path(dst_path).unlink(missing_ok=True)
+    if audio.ndim > 1:
+        audio = np.mean(audio, axis=1)
+    if sr != DEFAULT_SAMPLE_RATE:
+        import librosa
+
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
+        sr = DEFAULT_SAMPLE_RATE
+    return audio.astype(np.float32), sr
+
+
+def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int]:
+    text, derived_style = _apply_text_pipeline(request)
+    style = ", ".join(filter(None, [request.style, derived_style])) if request.style or derived_style else None
     chunks = chunk_text(text)
-    duration = max(1.0, min(8.0, len(text) / 40.0))
-    audio_chunks = [_generate_tone(duration / len(chunks), request.sample_rate) for _ in chunks]
-    return stitch_audio(audio_chunks, request.sample_rate)
+    audio_chunks: List[np.ndarray] = []
+    sample_rate = request.sample_rate
+
+    voice_kind, voice_path = _resolve_voice_meta(request.voice_id)
+    if voice_kind == "preset":
+        voice_name = request.voice_id.split("::", 1)[1]
+        for chunk in chunks:
+            result = engine.synthesize_custom_voice(
+                text=chunk,
+                voice_name=voice_name,
+                model_size=request.model_size,
+                backend=request.backend,
+                language=request.language,
+                instruct=style,
+            )
+            sample_rate = result.sample_rate
+            audio_chunks.append(result.audio)
+    else:
+        prompt = _load_clone_prompt(voice_path)
+        for chunk in chunks:
+            result = engine.synthesize_clone(
+                text=chunk,
+                voice_clone_prompt=prompt,
+                model_size=request.model_size,
+                backend=request.backend,
+                language=request.language,
+            )
+            sample_rate = result.sample_rate
+            audio_chunks.append(result.audio)
+    return audio_chunks, sample_rate
+
+
+def _synthesize(request: TtsRequest) -> Tuple[np.ndarray, int]:
+    audio_chunks, sample_rate = _synthesize_chunks(request)
+    stitched = stitch_audio(audio_chunks, sample_rate)
+    return stitched, sample_rate
 
 
 @app.get("/health")
@@ -170,25 +249,46 @@ async def health() -> Dict[str, str]:
 
 @app.get("/system")
 async def system_info() -> Dict[str, object]:
-    cuda_available = bool(os.environ.get("CUDA_AVAILABLE", ""))
+    cuda_available = torch.cuda.is_available()
+    gpus = []
+    if cuda_available:
+        for idx in range(torch.cuda.device_count()):
+            gpus.append({"name": torch.cuda.get_device_name(idx)})
     return {
-        "cuda_available": cuda_available,
-        "gpus": [{"name": "CUDA"}] if cuda_available else [],
+        "cudaAvailable": cuda_available,
+        "gpus": gpus,
         "backends": ["auto", "cpu", "cuda"],
-        "models_supported": [
-            {"model_id": "qwen3-tts-0.6b", "size": "0.6b"},
-            {"model_id": "qwen3-tts-1.7b", "size": "1.7b"},
-        ],
-        "default_sample_rate": 24000,
+        "modelsSupported": [_camelize_keys(entry) for entry in model_manager.list_required_models()],
+        "defaultSampleRate": DEFAULT_SAMPLE_RATE,
     }
 
 
 @app.get("/models/status")
 async def models_status() -> Dict[str, object]:
-    downloaded = []
-    for model_id, path in model_manager.cache.items():
-        downloaded.append({"model_id": model_id, "path": str(path)})
-    return {"downloaded": downloaded}
+    status = []
+    for entry in model_manager.list_required_models():
+        model_id = entry["model_id"]
+        state = model_manager.ensure_download_state(model_id)
+        model_manager.update_progress(model_id)
+        pct = 0
+        if state.total_bytes:
+            pct = min(100, int(state.downloaded_bytes / state.total_bytes * 100))
+        status.append(
+            _camelize_keys(
+                {
+                    "model_id": model_id,
+                    "kind": entry["kind"],
+                    "size": entry["size"],
+                    "status": state.status,
+                    "downloaded_bytes": state.downloaded_bytes,
+                    "total_bytes": state.total_bytes,
+                    "progress": pct,
+                    "path": str(state.local_dir),
+                    "error": state.error,
+                }
+            )
+        )
+    return {"models": status}
 
 
 @app.post("/models/download")
@@ -196,38 +296,74 @@ async def models_download(payload: Dict[str, str]) -> Dict[str, str]:
     model_id = payload.get("model_id")
     if not model_id:
         raise HTTPException(status_code=400, detail="model_id required")
-    path = model_manager.download(model_id)
-    return {"ok": True, "path": str(path)}
+    state = model_manager.ensure_download_state(model_id)
+    if state.status == "completed":
+        return {"ok": True, "path": str(state.local_dir)}
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, model_manager.download, model_id)
+    return {"ok": True, "path": str(state.local_dir)}
 
 
 @app.get("/models/download/events")
 async def models_download_events(model_id: str):
     async def event_stream():
-        for pct, stage in [(0, "starting"), (50, "downloading"), (100, "done")]:
-            await asyncio.sleep(0.1)
-            yield f"data: {json.dumps({'pct': pct, 'stage': stage})}\n\n"
+        state = model_manager.ensure_download_state(model_id)
+        while state.status in {"pending", "downloading"}:
+            model_manager.update_progress(model_id)
+            pct = 0
+            if state.total_bytes:
+                pct = min(100, int(state.downloaded_bytes / state.total_bytes * 100))
+            payload = _camelize_keys(
+                {
+                    "pct": pct,
+                    "stage": state.status,
+                    "downloaded_bytes": state.downloaded_bytes,
+                    "total_bytes": state.total_bytes,
+                    "error": state.error,
+                }
+            )
+            yield f"data: {json.dumps(payload)}\n\n"
+            await asyncio.sleep(0.5)
+        model_manager.update_progress(model_id)
+        pct = 100 if state.status == "completed" else 0
+        payload = _camelize_keys(
+            {
+                "pct": pct,
+                "stage": state.status,
+                "downloaded_bytes": state.downloaded_bytes,
+                "total_bytes": state.total_bytes,
+                "error": state.error,
+            }
+        )
+        yield f"data: {json.dumps(payload)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/voices")
 async def voices_list() -> Dict[str, object]:
-    voices = list(PRESET_VOICES)
+    voices = [_camelize_keys(voice) for voice in engine.list_preset_voices()]
     user_dir = paths.voices / "user"
     for voice_folder in user_dir.glob("*"):
         meta = read_json(voice_folder / "meta.json")
         if meta:
-            voices.append(meta)
+            voices.append(_camelize_keys(meta))
     return {"voices": voices}
 
 
 @app.post("/voices/clone")
 async def voices_clone(
     name: str = Form(...),
+    model_size: str = Form("0.6b"),
+    backend: str = Form("auto"),
     keep_ref_audio: bool = Form(False),
+    consent: bool = Form(False),
     ref_text: Optional[str] = Form(None),
     audio: UploadFile = File(...),
 ) -> Dict[str, str]:
+    if not consent:
+        raise HTTPException(status_code=400, detail="consent flag required")
     voice_id = f"voice_{_job_id()}"
     voice_path = _voice_dir(voice_id)
     voice_path.mkdir(parents=True, exist_ok=True)
@@ -238,13 +374,19 @@ async def voices_clone(
         "tags": [],
         "created_at": _now(),
         "ref_text": ref_text,
+        "model_size": model_size,
+        "backend": backend,
     }
     write_json(voice_path / "meta.json", meta)
+
+    audio_np, sr = await _ensure_wav_audio(audio)
+    prompt = engine.create_clone_prompt((audio_np, sr), ref_text, model_size, backend)
+    torch.save(prompt, voice_path / "clone_prompt.pt")
+
     if keep_ref_audio:
-        content = await audio.read()
-        (voice_path / "ref_audio.wav").write_bytes(content)
-    (voice_path / "clone_prompt.bin").write_bytes(b"placeholder_prompt")
-    return {"voice_id": voice_id}
+        ref_path = voice_path / "ref_audio.wav"
+        sf.write(str(ref_path), audio_np, sr, subtype="PCM_16")
+    return {"voiceId": voice_id}
 
 
 @app.post("/voices/design")
@@ -259,10 +401,16 @@ async def voices_design(payload: VoiceDesignRequest) -> Dict[str, str]:
         "tags": [],
         "created_at": _now(),
         "description": payload.description,
+        "model_size": payload.model_size,
+        "backend": payload.backend,
     }
     write_json(voice_path / "meta.json", meta)
-    (voice_path / "clone_prompt.bin").write_bytes(b"design_prompt")
-    return {"voice_id": voice_id}
+    design = engine.synthesize_voice_design(payload.description, payload.seed_text, payload.backend)
+    preview_path = voice_path / "preview.wav"
+    sf.write(str(preview_path), design.audio, design.sample_rate, subtype="PCM_16")
+    prompt = engine.create_clone_prompt((design.audio, design.sample_rate), payload.seed_text, payload.model_size, payload.backend)
+    torch.save(prompt, voice_path / "clone_prompt.pt")
+    return {"voiceId": voice_id}
 
 
 @app.patch("/voices/{voice_id}")
@@ -294,10 +442,10 @@ async def voices_delete(voice_id: str) -> Dict[str, str]:
 @app.post("/tts")
 async def tts(request: TtsRequest, background_tasks: BackgroundTasks):
     job_id = _job_id()
-    audio = _synthesize(request)
+    audio, sample_rate = _synthesize(request)
     output_path = paths.outputs / f"{job_id}.wav"
-    _write_wav(output_path, audio, request.sample_rate)
-    duration_ms = int(len(audio) / request.sample_rate * 1000)
+    _write_wav(output_path, audio, sample_rate)
+    duration_ms = int(len(audio) / sample_rate * 1000)
     entry = {
         "job_id": job_id,
         "text": request.text,
@@ -308,34 +456,32 @@ async def tts(request: TtsRequest, background_tasks: BackgroundTasks):
     }
     background_tasks.add_task(_save_history, entry)
     return {
-        "job_id": job_id,
-        "output_path": str(output_path),
-        "duration_ms": duration_ms,
-        "backend_used": request.backend,
+        "jobId": job_id,
+        "outputPath": str(output_path),
+        "durationMs": duration_ms,
+        "backendUsed": request.backend,
         "warning": None,
     }
 
 
 @app.post("/tts/stream")
 async def tts_stream(request: TtsRequest):
-    audio = _synthesize(request)
-    audio_int16 = np.clip(audio, -1.0, 1.0)
-    audio_int16 = (audio_int16 * 32767).astype(np.int16)
+    audio_chunks, sample_rate = _synthesize_chunks(request)
 
     def generator():
-        chunk_size = int(request.sample_rate * 0.5)
-        for idx in range(0, len(audio_int16), chunk_size):
-            yield audio_int16[idx : idx + chunk_size].tobytes()
-            time.sleep(0.05)
+        for chunk in audio_chunks:
+            audio_int16 = np.clip(chunk, -1.0, 1.0)
+            audio_int16 = (audio_int16 * 32767).astype(np.int16)
+            yield audio_int16.tobytes()
+            time.sleep(0.01)
 
-    return StreamingResponse(generator(), media_type="application/octet-stream")
+    headers = {"X-Sample-Rate": str(sample_rate)}
+    return StreamingResponse(generator(), media_type="application/octet-stream", headers=headers)
 
 
 @app.get("/projects")
 async def projects_list() -> Dict[str, object]:
-    projects = []
-    for project_path in paths.projects.glob("*.json"):
-        projects.append(read_json(project_path))
+    projects = [_camelize_keys(project) for project in db.list_projects()]
     return {"projects": projects}
 
 
@@ -343,66 +489,62 @@ async def projects_list() -> Dict[str, object]:
 async def projects_create(payload: ProjectCreateRequest) -> Dict[str, str]:
     project_id = _job_id()
     entry = {"project_id": project_id, "name": payload.name, "created_at": _now()}
-    write_json(paths.projects / f"{project_id}.json", entry)
-    return {"project_id": project_id}
+    db.create_project(project_id, payload.name, entry["created_at"])
+    return {"projectId": project_id}
 
 
 @app.get("/history")
 async def history_list(limit: int = 50, project_id: Optional[str] = None, q: Optional[str] = None):
-    entries = []
-    for entry_path in sorted(paths.history.glob("*.json"), reverse=True):
-        entry = read_json(entry_path)
-        if project_id and entry.get("project_id") != project_id:
-            continue
-        if q and q.lower() not in entry.get("text", "").lower():
-            continue
-        entries.append(entry)
-        if len(entries) >= limit:
-            break
+    entries = [_camelize_keys(entry) for entry in db.list_history(limit, project_id, q)]
     return {"history": entries}
 
 
 @app.get("/history/{job_id}")
 async def history_get(job_id: str) -> Dict[str, object]:
-    entry = read_json(paths.history / f"{job_id}.json")
+    entry = db.get_history(job_id)
     if not entry:
         raise HTTPException(status_code=404, detail="History not found")
-    return entry
+    return _camelize_keys(entry)
 
 
 @app.get("/pronunciation/profiles")
 async def pronunciation_profiles():
     profiles = []
-    for profile_path in paths.pronunciation.glob("*.json"):
-        profiles.append(read_json(profile_path))
+    for profile in db.list_pronunciation_profiles():
+        entries = profile.get("entries", [])
+        profile_dict = {
+            "profile_id": profile["profile_id"],
+            "name": profile["name"],
+            "created_at": profile["created_at"],
+            "entries": entries,
+        }
+        profiles.append(_camelize_keys(profile_dict))
     return {"profiles": profiles}
 
 
 @app.post("/pronunciation/profiles")
 async def pronunciation_create(payload: PronunciationProfileCreate):
     profile_id = _job_id()
-    entry = {"id": profile_id, "name": payload.name, "entries": []}
-    write_json(paths.pronunciation / f"{profile_id}.json", entry)
+    db.create_pronunciation_profile(profile_id, payload.name, _now())
     return {"id": profile_id}
 
 
 @app.put("/pronunciation/profiles/{profile_id}")
 async def pronunciation_update(profile_id: str, payload: PronunciationProfileUpdate):
-    profile_path = paths.pronunciation / f"{profile_id}.json"
-    entry = read_json(profile_path)
-    if not entry:
+    profiles = db.list_pronunciation_profiles()
+    if not any(profile["profile_id"] == profile_id for profile in profiles):
         raise HTTPException(status_code=404, detail="Profile not found")
-    entry["entries"] = payload.entries
-    write_json(profile_path, entry)
+    db.update_pronunciation_entries(profile_id, payload.entries)
     return {"ok": True}
 
 
 @app.delete("/data")
 async def delete_all_data():
-    for folder in [paths.voices, paths.outputs, paths.history, paths.projects, paths.pronunciation]:
+    for folder in [paths.voices, paths.outputs]:
         for item in folder.glob("**/*"):
             if item.is_file():
                 item.unlink()
+    db.delete_all()
     return {"ok": True}
 
 

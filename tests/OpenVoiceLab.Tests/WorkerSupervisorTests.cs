@@ -9,8 +9,8 @@ public class WorkerSupervisorTests
     public void BuildHealthUrlUsesPort()
     {
         var supervisor = new WorkerSupervisor();
-        var port = supervisor.FindFreePort();
-        var url = $"http://127.0.0.1:{port}/health";
-        Assert.Contains($":{port}/health", url);
+        var port = supervisor.FindFreePort(20000, 40000);
+        Assert.InRange(port, 1, 65535);
+        Assert.True(port >= 20000);
     }
 }

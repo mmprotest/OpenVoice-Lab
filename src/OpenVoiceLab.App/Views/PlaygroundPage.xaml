@@ -8,33 +8,32 @@
     <ScrollViewer>
         <StackPanel Spacing="12" Padding="24">
             <TextBlock Text="TTS Playground" FontSize="22" FontWeight="SemiBold" />
-            <TextBox Header="Text" AcceptsReturn="True" Height="120" TextWrapping="Wrap" />
-            <ComboBox Header="Language">
-                <ComboBoxItem Content="English" />
-                <ComboBoxItem Content="Chinese" />
+            <ComboBox Header="Voice" ItemsSource="{x:Bind ViewModel.Voices}" SelectedItem="{x:Bind ViewModel.SelectedVoice, Mode=TwoWay}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}" />
+                            <TextBlock Text="{Binding Type}" FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
             </ComboBox>
-            <TextBox Header="Style Instruction" PlaceholderText="Warm, calm, cinematic" />
-            <Slider Header="Speed" Minimum="0.5" Maximum="1.5" Value="1" />
-            <Slider Header="Stability" Minimum="0" Maximum="1" Value="0.5" />
-            <Slider Header="Similarity" Minimum="0" Maximum="1" Value="0.5" />
+            <TextBox Header="Text" AcceptsReturn="True" Height="120" TextWrapping="Wrap" Text="{x:Bind ViewModel.Text, Mode=TwoWay}" />
+            <ComboBox Header="Language" ItemsSource="{x:Bind ViewModel.Languages}" SelectedItem="{x:Bind ViewModel.SelectedLanguage, Mode=TwoWay}" />
+            <TextBox Header="Style Instruction" PlaceholderText="Warm, calm, cinematic" Text="{x:Bind ViewModel.Style, Mode=TwoWay}" />
+            <CheckBox Content="Enable SSML-lite" IsChecked="{x:Bind ViewModel.EnableSsmlLite, Mode=TwoWay}" />
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <ComboBox Header="Model Size" Width="200">
-                    <ComboBoxItem Content="0.6B" />
-                    <ComboBoxItem Content="1.7B" />
-                </ComboBox>
-                <ComboBox Header="Backend" Width="200">
-                    <ComboBoxItem Content="Auto" />
-                    <ComboBoxItem Content="CPU" />
-                    <ComboBoxItem Content="CUDA" />
-                </ComboBox>
+                <ComboBox Header="Model Size" Width="200" ItemsSource="{x:Bind ViewModel.ModelSizes}" SelectedItem="{x:Bind ViewModel.SelectedModelSize, Mode=TwoWay}" />
+                <ComboBox Header="Backend" Width="200" ItemsSource="{x:Bind ViewModel.Backends}" SelectedItem="{x:Bind ViewModel.SelectedBackend, Mode=TwoWay}" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Content="Generate" />
-                <Button Content="Stream" />
-                <Button Content="Export WAV" />
-                <Button Content="Export MP3" />
+                <Button Content="Generate" Click="OnGenerate" />
+                <Button Content="Stream" Click="OnStream" />
+                <Button Content="Play" Click="OnPlay" />
+                <Button Content="Export WAV" Click="OnExport" />
             </StackPanel>
-            <TextBlock Text="Streaming playback buffers PCM into a WAV file for stable playback." />
+            <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
+            <TextBlock Text="Streaming playback buffers PCM into a WAV file for stable playback." FontSize="12" Opacity="0.7" />
         </StackPanel>
     </ScrollViewer>
 </Page>

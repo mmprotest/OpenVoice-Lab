@@ -1,20 +1,72 @@
 <Page
     x:Class="OpenVoiceLab.Views.VoicesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer>
-        <StackPanel Spacing="12" Padding="24">
-            <TextBlock Text="Voice Library" FontSize="22" FontWeight="SemiBold" />
-            <TextBlock Text="Preset voices and your saved clones/designs." />
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Content="Clone Voice" />
-                <Button Content="Design Voice" />
-                <Button Content="Rename" />
-                <Button Content="Delete" />
-                <Button Content="Preview" />
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Grid Padding="24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" />
+            <ColumnDefinition Width="3*" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Spacing="8">
+            <TextBlock Text="Voices" FontSize="22" FontWeight="SemiBold" />
+            <ListView ItemsSource="{x:Bind ViewModel.Voices}" SelectedItem="{x:Bind ViewModel.SelectedVoice, Mode=TwoWay}">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}" />
+                            <TextBlock Text="{Binding Type}" FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Refresh" Click="OnRefresh" />
+                <Button Content="Preview" Click="OnPreview" />
+                <Button Content="Rename" Click="OnRename" />
+                <Button Content="Delete" Click="OnDelete" />
             </StackPanel>
-            <CheckBox Content="I have rights/consent to use this voice." />
-            <CheckBox Content="Keep reference audio (default off)" />
+            <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
         </StackPanel>
-    </ScrollViewer>
+        <ScrollViewer Grid.Column="1">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Clone Voice" FontSize="18" FontWeight="SemiBold" />
+                <TextBox Header="Name" x:Name="CloneNameBox" />
+                <TextBox Header="Reference Text (optional)" x:Name="CloneRefTextBox" />
+                <CheckBox Content="Keep reference audio" x:Name="KeepRefAudioToggle" />
+                <CheckBox Content="I have consent to use this voice" x:Name="ConsentToggle" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox Header="Model Size" x:Name="CloneModelSizeBox" Width="160">
+                        <ComboBoxItem Content="0.6b" IsSelected="True" />
+                        <ComboBoxItem Content="1.7b" />
+                    </ComboBox>
+                    <ComboBox Header="Backend" x:Name="CloneBackendBox" Width="160">
+                        <ComboBoxItem Content="auto" IsSelected="True" />
+                        <ComboBoxItem Content="cpu" />
+                        <ComboBoxItem Content="cuda" />
+                    </ComboBox>
+                </StackPanel>
+                <Button Content="Create Clone" Click="OnCreateClone" />
+
+                <TextBlock Text="Design Voice" FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
+                <TextBox Header="Name" x:Name="DesignNameBox" />
+                <TextBox Header="Description" x:Name="DesignDescriptionBox" AcceptsReturn="True" Height="80" />
+                <TextBox Header="Seed Text" x:Name="DesignSeedTextBox" Text="Hello from OpenVoice Lab." />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox Header="Model Size" x:Name="DesignModelSizeBox" Width="160">
+                        <ComboBoxItem Content="0.6b" />
+                        <ComboBoxItem Content="1.7b" IsSelected="True" />
+                    </ComboBox>
+                    <ComboBox Header="Backend" x:Name="DesignBackendBox" Width="160">
+                        <ComboBoxItem Content="auto" IsSelected="True" />
+                        <ComboBoxItem Content="cpu" />
+                        <ComboBoxItem Content="cuda" />
+                    </ComboBox>
+                </StackPanel>
+                <Button Content="Create Design" Click="OnCreateDesign" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
 </Page>

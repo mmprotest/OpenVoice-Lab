@@ -6,14 +6,12 @@ namespace OpenVoiceLab;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly WorkerSupervisor _workerSupervisor = new();
-
     public MainWindow()
     {
         InitializeComponent();
+        WindowHelper.SetWindow(this);
         NavView.SelectionChanged += OnNavigationChanged;
         NavView.SelectedItem = NavView.MenuItems[0];
-        _workerSupervisor.Start();
     }
 
     private void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
