@@ -97,7 +97,8 @@ class Database:
                     voice_id TEXT NOT NULL,
                     output_path TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    project_id TEXT
+                    project_id TEXT,
+                    pronunciation_profile_id TEXT
                 )
                 """
             )
@@ -120,6 +121,9 @@ class Database:
                 )
                 """
             )
+            columns = [row["name"] for row in conn.execute("PRAGMA table_info(history)").fetchall()]
+            if "pronunciation_profile_id" not in columns:
+                conn.execute("ALTER TABLE history ADD COLUMN pronunciation_profile_id TEXT")
             conn.commit()
 
     def list_projects(self) -> List[Dict[str, Any]]:
@@ -140,8 +144,8 @@ class Database:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO history
-                    (job_id, text, voice_id, output_path, created_at, project_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (job_id, text, voice_id, output_path, created_at, project_id, pronunciation_profile_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry["job_id"],
@@ -150,12 +154,15 @@ class Database:
                     entry["output_path"],
                     entry["created_at"],
                     entry.get("project_id"),
+                    entry.get("pronunciation_profile_id"),
                 ),
             )
             conn.commit()
 
     def list_history(self, limit: int, project_id: Optional[str], query: Optional[str]) -> List[Dict[str, Any]]:
-        sql = "SELECT job_id, text, voice_id, output_path, created_at, project_id FROM history"
+        sql = (
+            "SELECT job_id, text, voice_id, output_path, created_at, project_id, pronunciation_profile_id FROM history"
+        )
         params: List[Any] = []
         clauses = []
         if project_id:
@@ -175,7 +182,10 @@ class Database:
     def get_history(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT job_id, text, voice_id, output_path, created_at, project_id FROM history WHERE job_id = ?",
+                """
+                SELECT job_id, text, voice_id, output_path, created_at, project_id, pronunciation_profile_id
+                FROM history WHERE job_id = ?
+                """,
                 (job_id,),
             ).fetchone()
         return dict(row) if row else None
@@ -213,6 +223,12 @@ class Database:
                 "INSERT INTO pronunciation_entries (profile_id, source, target) VALUES (?, ?, ?)",
                 [(profile_id, entry["from"], entry["to"]) for entry in entries],
             )
+            conn.commit()
+
+    def delete_pronunciation_profile(self, profile_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM pronunciation_entries WHERE profile_id = ?", (profile_id,))
+            conn.execute("DELETE FROM pronunciation_profiles WHERE profile_id = ?", (profile_id,))
             conn.commit()
 
     def delete_all(self) -> None:

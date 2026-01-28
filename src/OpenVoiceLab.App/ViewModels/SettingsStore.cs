@@ -8,6 +8,7 @@ public static class SettingsStore
     private const string DefaultModelSizeKey = "DefaultModelSize";
     private const string KeepRefAudioKey = "KeepRefAudio";
     private const string CurrentProjectKey = "CurrentProjectId";
+    private const string DefaultPronunciationProfileKey = "DefaultPronunciationProfileId";
 
     private static ApplicationDataContainer Local => ApplicationData.Current.LocalSettings;
 
@@ -37,5 +38,15 @@ public static class SettingsStore
             return string.IsNullOrWhiteSpace(value) ? null : value;
         }
         set => Local.Values[CurrentProjectKey] = value ?? string.Empty;
+    }
+
+    public static string? DefaultPronunciationProfileId
+    {
+        get
+        {
+            var value = (string?)Local.Values[DefaultPronunciationProfileKey];
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+        set => Local.Values[DefaultPronunciationProfileKey] = value ?? string.Empty;
     }
 }

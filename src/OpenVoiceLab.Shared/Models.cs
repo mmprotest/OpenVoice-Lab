@@ -91,7 +91,8 @@ public record HistoryEntry(
     string VoiceId,
     string OutputPath,
     string CreatedAt,
-    string? ProjectId
+    string? ProjectId,
+    string? PronunciationProfileId
 );
 
 public record HistoryResponse(IReadOnlyList<HistoryEntry> History);

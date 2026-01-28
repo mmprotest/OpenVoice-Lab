@@ -67,4 +67,9 @@ public sealed partial class PlaygroundPage : Page
         _player.Source = MediaSource.CreateFromUri(new Uri(ViewModel.LastOutputPath));
         _player.Play();
     }
+
+    private void OnOpenModels(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        App.MainWindow?.NavigateTo("models");
+    }
 }

@@ -453,6 +453,7 @@ async def tts(request: TtsRequest, background_tasks: BackgroundTasks):
         "output_path": str(output_path),
         "created_at": _now(),
         "project_id": request.project_id,
+        "pronunciation_profile_id": request.pronunciation_profile_id,
     }
     background_tasks.add_task(_save_history, entry)
     return {
@@ -535,6 +536,15 @@ async def pronunciation_update(profile_id: str, payload: PronunciationProfileUpd
     if not any(profile["profile_id"] == profile_id for profile in profiles):
         raise HTTPException(status_code=404, detail="Profile not found")
     db.update_pronunciation_entries(profile_id, payload.entries)
+    return {"ok": True}
+
+
+@app.delete("/pronunciation/profiles/{profile_id}")
+async def pronunciation_delete(profile_id: str):
+    profiles = db.list_pronunciation_profiles()
+    if not any(profile["profile_id"] == profile_id for profile in profiles):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    db.delete_pronunciation_profile(profile_id)
     return {"ok": True}
 
 

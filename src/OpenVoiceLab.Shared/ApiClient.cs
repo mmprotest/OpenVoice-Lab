@@ -45,29 +45,47 @@ public class ApiClient
         return body ?? throw new InvalidOperationException("No download response");
     }
 
+    public Task<ModelDownloadResponse> StartModelDownloadAsync(string modelId, CancellationToken cancellationToken = default)
+    {
+        return DownloadModelAsync(modelId, cancellationToken);
+    }
+
     public async IAsyncEnumerable<ModelDownloadEvent> StreamModelDownloadEventsAsync(string modelId, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var response = await _http.GetAsync($"/models/download/events?model_id={Uri.EscapeDataString(modelId)}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        var response = await _http.GetAsync(
+            $"/models/download/events?model_id={Uri.EscapeDataString(modelId)}",
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
+        string? dataBuffer = null;
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync();
+            var line = await reader.ReadLineAsync(cancellationToken);
             if (line == null)
             {
                 break;
             }
-            if (!line.StartsWith("data: ", StringComparison.Ordinal))
+            if (line.Length == 0)
+            {
+                if (!string.IsNullOrWhiteSpace(dataBuffer))
+                {
+                    var evt = JsonSerializer.Deserialize<ModelDownloadEvent>(dataBuffer, _jsonOptions);
+                    if (evt != null)
+                    {
+                        yield return evt;
+                    }
+                }
+                dataBuffer = null;
+                continue;
+            }
+            if (!line.StartsWith("data:", StringComparison.Ordinal))
             {
                 continue;
             }
-            var payload = line[6..];
-            var evt = JsonSerializer.Deserialize<ModelDownloadEvent>(payload, _jsonOptions);
-            if (evt != null)
-            {
-                yield return evt;
-            }
+            var payload = line[5..].TrimStart();
+            dataBuffer = dataBuffer == null ? payload : $"{dataBuffer}\n{payload}";
         }
     }
 
@@ -199,6 +217,12 @@ public class ApiClient
     public async Task UpdatePronunciationProfileAsync(string profileId, PronunciationProfileUpdateRequest request, CancellationToken cancellationToken = default)
     {
         var response = await _http.PutAsJsonAsync($"/pronunciation/profiles/{profileId}", request, _jsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeletePronunciationProfileAsync(string profileId, CancellationToken cancellationToken = default)
+    {
+        var response = await _http.DeleteAsync($"/pronunciation/profiles/{profileId}", cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 

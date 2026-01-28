@@ -8,6 +8,13 @@
     <ScrollViewer>
         <StackPanel Spacing="12" Padding="24">
             <TextBlock Text="TTS Playground" FontSize="22" FontWeight="SemiBold" />
+            <InfoBar Severity="Warning"
+                     IsOpen="{x:Bind ViewModel.IsModelsBannerVisible, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.ModelsBannerMessage, Mode=OneWay}">
+                <InfoBar.ActionButton>
+                    <Button Content="Open Models" Click="OnOpenModels" />
+                </InfoBar.ActionButton>
+            </InfoBar>
             <ComboBox Header="Voice" ItemsSource="{x:Bind ViewModel.Voices}" SelectedItem="{x:Bind ViewModel.SelectedVoice, Mode=TwoWay}">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
@@ -20,6 +27,9 @@
             </ComboBox>
             <TextBox Header="Text" AcceptsReturn="True" Height="120" TextWrapping="Wrap" Text="{x:Bind ViewModel.Text, Mode=TwoWay}" />
             <ComboBox Header="Language" ItemsSource="{x:Bind ViewModel.Languages}" SelectedItem="{x:Bind ViewModel.SelectedLanguage, Mode=TwoWay}" />
+            <ComboBox Header="Pronunciation profile"
+                      ItemsSource="{x:Bind ViewModel.PronunciationProfiles}"
+                      SelectedItem="{x:Bind ViewModel.SelectedPronunciationProfile, Mode=TwoWay}" />
             <TextBox Header="Style Instruction" PlaceholderText="Warm, calm, cinematic" Text="{x:Bind ViewModel.Style, Mode=TwoWay}" />
             <CheckBox Content="Enable SSML-lite" IsChecked="{x:Bind ViewModel.EnableSsmlLite, Mode=TwoWay}" />
             <StackPanel Orientation="Horizontal" Spacing="12">
@@ -27,8 +37,8 @@
                 <ComboBox Header="Backend" Width="200" ItemsSource="{x:Bind ViewModel.Backends}" SelectedItem="{x:Bind ViewModel.SelectedBackend, Mode=TwoWay}" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Content="Generate" Click="OnGenerate" />
-                <Button Content="Stream" Click="OnStream" />
+                <Button Content="Generate" Click="OnGenerate" IsEnabled="{x:Bind ViewModel.CanGenerate, Mode=OneWay}" />
+                <Button Content="Stream" Click="OnStream" IsEnabled="{x:Bind ViewModel.CanGenerate, Mode=OneWay}" />
                 <Button Content="Play" Click="OnPlay" />
                 <Button Content="Export WAV" Click="OnExport" />
             </StackPanel>

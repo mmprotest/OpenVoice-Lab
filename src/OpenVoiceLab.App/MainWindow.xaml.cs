@@ -26,6 +26,12 @@ public sealed partial class MainWindow : Window
                 case "voices":
                     ContentFrame.Navigate(typeof(VoicesPage));
                     break;
+                case "models":
+                    ContentFrame.Navigate(typeof(ModelsPage));
+                    break;
+                case "pronunciation":
+                    ContentFrame.Navigate(typeof(PronunciationPage));
+                    break;
                 case "projects":
                     ContentFrame.Navigate(typeof(ProjectsPage));
                     break;
@@ -35,6 +41,18 @@ public sealed partial class MainWindow : Window
                 case "settings":
                     ContentFrame.Navigate(typeof(SettingsPage));
                     break;
+            }
+        }
+    }
+
+    public void NavigateTo(string tag)
+    {
+        foreach (var item in NavView.MenuItems)
+        {
+            if (item is NavigationViewItem navItem && string.Equals(navItem.Tag?.ToString(), tag, StringComparison.Ordinal))
+            {
+                NavView.SelectedItem = navItem;
+                break;
             }
         }
     }
