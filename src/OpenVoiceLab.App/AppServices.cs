@@ -9,6 +9,10 @@ public sealed class AppServices
 
     public WorkerSupervisor Worker { get; }
 
+    public Models.ModelsStatusStore ModelsStatus { get; } = new();
+
+    public Models.PronunciationProfilesStore PronunciationProfiles { get; } = new();
+
     private readonly TaskCompletionSource<ApiClient> _apiReady = new();
 
     public AppServices()
@@ -31,7 +35,11 @@ public sealed class AppServices
         {
             BaseAddress = new Uri($"http://127.0.0.1:{Worker.Port}")
         };
-        _apiReady.TrySetResult(new ApiClient(http));
+        var apiClient = new ApiClient(http);
+        _apiReady.TrySetResult(apiClient);
+        await Task.WhenAll(
+            ModelsStatus.RefreshAsync(apiClient),
+            PronunciationProfiles.RefreshAsync(apiClient));
     }
 
     public Task<ApiClient> GetApiAsync() => _apiReady.Task;

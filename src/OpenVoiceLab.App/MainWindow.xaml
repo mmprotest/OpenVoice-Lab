@@ -9,6 +9,8 @@
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Playground" Tag="playground" />
                 <NavigationViewItem Content="Voices" Tag="voices" />
+                <NavigationViewItem Content="Models" Tag="models" />
+                <NavigationViewItem Content="Pronunciation" Tag="pronunciation" />
                 <NavigationViewItem Content="Projects" Tag="projects" />
                 <NavigationViewItem Content="History" Tag="history" />
                 <NavigationViewItem Content="Settings" Tag="settings" />

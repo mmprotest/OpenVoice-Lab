@@ -1,4 +1,7 @@
+using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
+using OpenVoiceLab.Models;
 using OpenVoiceLab.Shared;
 
 namespace OpenVoiceLab.ViewModels;
@@ -16,6 +19,11 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _keepRefAudio = SettingsStore.KeepRefAudio;
 
+    public ObservableCollection<PronunciationProfileOption> PronunciationProfiles { get; } = new();
+
+    [ObservableProperty]
+    private PronunciationProfileOption? _selectedPronunciationProfile;
+
     [ObservableProperty]
     private string? _engineLog;
 
@@ -26,6 +34,9 @@ public partial class SettingsViewModel : ObservableObject
     {
         _services = services;
         RefreshLog();
+        _services.PronunciationProfiles.Profiles.CollectionChanged += (_, _) => RefreshPronunciationProfiles();
+        RefreshPronunciationProfiles();
+        _ = LoadPronunciationProfilesAsync();
     }
 
     partial void OnDefaultBackendChanged(string value)
@@ -43,6 +54,11 @@ public partial class SettingsViewModel : ObservableObject
         SettingsStore.KeepRefAudio = value;
     }
 
+    partial void OnSelectedPronunciationProfileChanged(PronunciationProfileOption? value)
+    {
+        SettingsStore.DefaultPronunciationProfileId = value?.Id;
+    }
+
     public void RefreshLog()
     {
         EngineLog = _services.Worker.GetLogTail();
@@ -53,5 +69,25 @@ public partial class SettingsViewModel : ObservableObject
         var api = await _services.GetApiAsync();
         await api.DeleteDataAsync();
         Status = "Local data deleted";
+    }
+
+    private async Task LoadPronunciationProfilesAsync()
+    {
+        var api = await _services.GetApiAsync();
+        await _services.PronunciationProfiles.RefreshAsync(api);
+        RefreshPronunciationProfiles();
+    }
+
+    private void RefreshPronunciationProfiles()
+    {
+        PronunciationProfiles.Clear();
+        PronunciationProfiles.Add(new PronunciationProfileOption(null, "None"));
+        foreach (var profile in _services.PronunciationProfiles.Profiles)
+        {
+            PronunciationProfiles.Add(new PronunciationProfileOption(profile.ProfileId, profile.Name));
+        }
+        var defaultId = SettingsStore.DefaultPronunciationProfileId;
+        SelectedPronunciationProfile = PronunciationProfiles.FirstOrDefault(option => option.Id == defaultId)
+            ?? PronunciationProfiles.FirstOrDefault();
     }
 }

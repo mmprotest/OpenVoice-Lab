@@ -1,0 +1,63 @@
+<Page
+    x:Class="OpenVoiceLab.Views.PronunciationPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:viewModels="using:OpenVoiceLab.ViewModels"
+    mc:Ignorable="d">
+    <Grid Padding="24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" />
+            <ColumnDefinition Width="3*" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Spacing="8">
+            <TextBlock Text="Pronunciation" FontSize="22" FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="New" Click="OnNewProfile" />
+                <Button Content="Delete" Click="OnDeleteProfile" />
+            </StackPanel>
+            <ListView ItemsSource="{x:Bind ViewModel.Profiles}" SelectedItem="{x:Bind ViewModel.SelectedProfile, Mode=TwoWay}">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}" />
+                            <TextBlock Text="{Binding CreatedAt}" FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </StackPanel>
+        <ScrollViewer Grid.Column="1">
+            <StackPanel Spacing="12">
+                <TextBlock Text="Entries" FontSize="18" FontWeight="SemiBold" />
+                <ListView ItemsSource="{x:Bind ViewModel.Entries}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="viewModels:PronunciationEntryItem">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Header="From" Text="{x:Bind From, Mode=TwoWay}" />
+                                <TextBox Header="To" Text="{x:Bind To, Mode=TwoWay}" Grid.Column="1" />
+                                <Button Content="Remove" Click="OnRemoveEntry" Grid.Column="2" VerticalAlignment="Bottom" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Add entry" Click="OnAddEntry" />
+                    <Button Content="Save" Click="OnSave" />
+                </StackPanel>
+                <TextBlock Text="{x:Bind ViewModel.ValidationMessage, Mode=OneWay}" Foreground="Tomato" />
+                <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
+
+                <TextBlock Text="Test" FontSize="18" FontWeight="SemiBold" Margin="0,16,0,0" />
+                <TextBox Header="Input" Text="{x:Bind ViewModel.TestInput, Mode=TwoWay}" AcceptsReturn="True" Height="80" />
+                <TextBox Header="Preview" Text="{x:Bind ViewModel.PreviewOutput, Mode=OneWay}" AcceptsReturn="True" Height="80" IsReadOnly="True" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

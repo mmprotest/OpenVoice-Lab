@@ -29,7 +29,7 @@
 
 ## Model download
 Models are stored in `%LOCALAPPDATA%\OpenVoiceLab\models\`.
-Download by calling the app or:
+You can download models directly in the app (Models page) or via the worker API:
 ```powershell
 curl -X POST http://127.0.0.1:23456/models/download -H "Content-Type: application/json" -d "{\"model_id\":\"Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice\"}"
 ```

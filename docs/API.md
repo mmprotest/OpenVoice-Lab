@@ -25,6 +25,7 @@ Base URL: `http://127.0.0.1:{port}`
 
 ## TTS
 - `POST /tts`
+  - Body accepts `pronunciation_profile_id` to apply a profile.
 - `POST /tts/stream`
   - Returns 16-bit PCM LE and `X-Sample-Rate` header.
 
@@ -33,11 +34,13 @@ Base URL: `http://127.0.0.1:{port}`
 - `POST /projects` `{ name }`
 - `GET /history?limit=&project_id=&q=`
 - `GET /history/{job_id}`
+  - History entries include `pronunciation_profile_id` when set.
 
 ## Pronunciation
 - `GET /pronunciation/profiles`
 - `POST /pronunciation/profiles` `{ name }`
 - `PUT /pronunciation/profiles/{id}` `{ entries: [{ from, to }] }`
+- `DELETE /pronunciation/profiles/{id}`
 
 ## Data
 - `DELETE /data`

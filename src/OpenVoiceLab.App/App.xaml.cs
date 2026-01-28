@@ -4,6 +4,8 @@ namespace OpenVoiceLab;
 
 public partial class App : Application
 {
+    public static MainWindow? MainWindow { get; private set; }
+
     public App()
     {
         InitializeComponent();
@@ -14,6 +16,7 @@ public partial class App : Application
         var services = AppServices.CreateAndSetCurrent();
         _ = services.InitializeAsync();
         var window = new MainWindow();
+        MainWindow = window;
         window.Activate();
     }
 }

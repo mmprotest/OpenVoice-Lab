@@ -107,4 +107,9 @@ public sealed partial class VoicesPage : Page
             backend
         );
     }
+
+    private void OnOpenModels(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        App.MainWindow?.NavigateTo("models");
+    }
 }
