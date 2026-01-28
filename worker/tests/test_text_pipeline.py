@@ -1,6 +1,6 @@
 import numpy as np
 
-from text_pipeline import apply_pronunciation, chunk_text, parse_ssml_lite, stitch_audio
+from text_pipeline import apply_pronunciation, chunk_text, hints_to_style, parse_ssml_lite, stitch_audio
 
 
 def test_parse_ssml_lite_strips_tags():
@@ -10,6 +10,13 @@ def test_parse_ssml_lite_strips_tags():
     assert "Hello" in text
     assert "world" in text
     assert len(hints) == 3
+
+
+def test_hints_to_style():
+    _, hints = parse_ssml_lite('<prosody rate="slow">hi</prosody> <emphasis level="moderate">there</emphasis>')
+    style = hints_to_style(hints)
+    assert "slow" in style
+    assert "emphasis" in style
 
 
 def test_apply_pronunciation_replaces_words():

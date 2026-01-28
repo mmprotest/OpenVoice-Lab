@@ -1,14 +1,42 @@
 <Page
     x:Class="OpenVoiceLab.Views.HistoryPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <StackPanel Spacing="12" Padding="24">
-        <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" />
-        <TextBox Header="Search" PlaceholderText="Search by text, voice, date" />
-        <ListView Height="300" />
-        <StackPanel Orientation="Horizontal" Spacing="12">
-            <Button Content="Replay" />
-            <Button Content="Re-export" />
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Grid Padding="24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" />
+            <ColumnDefinition Width="3*" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Spacing="8">
+            <TextBlock Text="History" FontSize="22" FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox x:Name="SearchBox" PlaceholderText="Search" Width="240" Text="{x:Bind ViewModel.SearchQuery, Mode=TwoWay}" />
+                <Button Content="Search" Click="OnSearch" />
+                <Button Content="Refresh" Click="OnRefresh" />
+            </StackPanel>
+            <ListView ItemsSource="{x:Bind ViewModel.Entries}" SelectedItem="{x:Bind ViewModel.SelectedEntry, Mode=TwoWay}">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding CreatedAt}" FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
         </StackPanel>
-    </StackPanel>
+        <StackPanel Grid.Column="1" Spacing="8">
+            <TextBlock Text="Details" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Text="{x:Bind ViewModel.SelectedEntry.Text, Mode=OneWay}" TextWrapping="Wrap" />
+            <TextBlock Text="{x:Bind ViewModel.SelectedEntry.OutputPath, Mode=OneWay}" FontSize="12" Opacity="0.6" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Play" Click="OnPlay" />
+                <Button Content="Export" Click="OnExport" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
 </Page>

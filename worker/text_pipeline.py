@@ -43,9 +43,27 @@ def parse_ssml_lite(text: str) -> Tuple[str, List[SsmlHint]]:
     return text.strip(), hints
 
 
+def hints_to_style(hints: Iterable[SsmlHint]) -> str:
+    parts: List[str] = []
+    for hint in hints:
+        if hint.kind == "prosody":
+            if hint.value == "slow":
+                parts.append("slow pace")
+            elif hint.value == "fast":
+                parts.append("fast pace")
+        elif hint.kind == "emphasis":
+            if hint.value == "strong":
+                parts.append("strong emphasis")
+            elif hint.value == "moderate":
+                parts.append("moderate emphasis")
+        elif hint.kind == "break":
+            parts.append(f"pause {hint.value}")
+    return ", ".join(parts)
+
+
 def apply_pronunciation(text: str, entries: Iterable[Tuple[str, str]]) -> str:
     for source, target in entries:
-        pattern = r"\\b" + re.escape(source) + r"\\b"
+        pattern = r"\b" + re.escape(source) + r"\b"
         text = re.sub(pattern, target, text, flags=re.IGNORECASE)
     return text
 

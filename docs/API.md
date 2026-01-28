@@ -10,12 +10,15 @@ Base URL: `http://127.0.0.1:{port}`
 
 ## Models
 - `GET /models/status`
+  - Returns `models: [{ model_id, kind, size, status, downloaded_bytes, total_bytes, progress, path, error }]`
 - `POST /models/download` `{ model_id }`
 - `GET /models/download/events?model_id=...` (SSE)
+  - Emits `{ pct, stage, downloaded_bytes, total_bytes, error }`
 
 ## Voices
 - `GET /voices`
-- `POST /voices/clone` (multipart: name, keep_ref_audio, ref_text, audio)
+- `POST /voices/clone` (multipart)
+  - fields: `name`, `model_size`, `backend`, `keep_ref_audio`, `consent`, `ref_text` (optional), `audio`
 - `POST /voices/design` `{ name, description, seed_text, model_size, backend }`
 - `PATCH /voices/{voice_id}` `{ name, tags }`
 - `DELETE /voices/{voice_id}`
@@ -23,6 +26,7 @@ Base URL: `http://127.0.0.1:{port}`
 ## TTS
 - `POST /tts`
 - `POST /tts/stream`
+  - Returns 16-bit PCM LE and `X-Sample-Rate` header.
 
 ## Projects & History
 - `GET /projects`

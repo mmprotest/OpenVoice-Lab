@@ -9,8 +9,10 @@ public partial class App : Application
         InitializeComponent();
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        var services = AppServices.CreateAndSetCurrent();
+        _ = services.InitializeAsync();
         var window = new MainWindow();
         window.Activate();
     }

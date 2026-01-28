@@ -10,5 +10,6 @@
   <ItemGroup>
     <ProjectReference Include="..\OpenVoiceLab.Shared\OpenVoiceLab.Shared.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240627000" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
   </ItemGroup>
 </Project>
