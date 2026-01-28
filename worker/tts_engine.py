@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar
 
 import numpy as np
 import torch
@@ -12,6 +12,7 @@ from qwen_tts import Qwen3TTSModel, VoiceClonePromptItem
 from model_manager import ModelManager
 
 logger = logging.getLogger("openvoice")
+T = TypeVar("T")
 
 
 @dataclass
@@ -26,21 +27,36 @@ class TtsEngine:
         self._model_cache: Dict[Tuple[str, str], Qwen3TTSModel] = {}
         self._preset_cache: Optional[List[Dict[str, str]]] = None
 
-    def _resolve_device(self, backend: str) -> str:
+    def _resolve_device(self, backend: str) -> Tuple[str, Optional[str]]:
         backend = backend.lower()
         if backend == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                return "cuda", None
+            return "cpu", "CUDA not available; fell back to CPU."
         if backend == "cuda" and not torch.cuda.is_available():
-            return "cpu"
-        return backend
+            return "cpu", "CUDA not available; fell back to CPU."
+        return backend, None
+
+    def _is_cuda_failure(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(
+            needle in message
+            for needle in (
+                "cuda",
+                "cublas",
+                "cudnn",
+                "no kernel image",
+                "device-side assert",
+                "nvml",
+            )
+        )
 
     def _resolve_dtype(self, device: str) -> torch.dtype:
         if device.startswith("cuda"):
             return torch.bfloat16 if torch.cuda.is_available() else torch.float16
         return torch.float32
 
-    def get_model(self, model_id: str, backend: str) -> Qwen3TTSModel:
-        device = self._resolve_device(backend)
+    def _get_model_for_device(self, model_id: str, device: str) -> Qwen3TTSModel:
         key = (model_id, device)
         if key in self._model_cache:
             return self._model_cache[key]
@@ -57,13 +73,42 @@ class TtsEngine:
         self._model_cache[key] = model
         return model
 
+    def get_model_for_backend(self, model_id: str, backend: str) -> Tuple[Qwen3TTSModel, str, Optional[str]]:
+        device, warning = self._resolve_device(backend)
+        try:
+            return self._get_model_for_device(model_id, device), device, warning
+        except Exception as exc:  # noqa: BLE001
+            if device.startswith("cuda") and self._is_cuda_failure(exc):
+                logger.warning("CUDA backend failed, falling back to CPU: %s", exc)
+                fallback_warning = "CUDA backend failed; fell back to CPU."
+                model = self._get_model_for_device(model_id, "cpu")
+                return model, "cpu", warning or fallback_warning
+            raise
+
+    def run_with_backend(
+        self,
+        model_id: str,
+        backend: str,
+        action: Callable[[Qwen3TTSModel], T],
+    ) -> Tuple[T, str, Optional[str]]:
+        model, device, warning = self.get_model_for_backend(model_id, backend)
+        try:
+            return action(model), device, warning
+        except Exception as exc:  # noqa: BLE001
+            if device.startswith("cuda") and self._is_cuda_failure(exc):
+                logger.warning("CUDA backend failed during inference, falling back to CPU: %s", exc)
+                fallback_warning = "CUDA backend failed during inference; fell back to CPU."
+                model = self._get_model_for_device(model_id, "cpu")
+                return action(model), "cpu", warning or fallback_warning
+            raise
+
     def list_preset_voices(self) -> List[Dict[str, str]]:
         if self._preset_cache is not None:
             return self._preset_cache
         voices: List[Dict[str, str]] = []
         try:
             model_id = self.model_manager.resolve_model_id("custom_voice", "0.6b")
-            model = self.get_model(model_id, "cpu")
+            model, _, _ = self.get_model_for_backend(model_id, "cpu")
             speakers = model.model.get_supported_speakers()
             for speaker in speakers:
                 voices.append({"voice_id": f"preset::{speaker}", "name": speaker, "type": "preset"})
@@ -88,7 +133,7 @@ class TtsEngine:
         instruct: Optional[str] = None,
     ) -> SynthesisResult:
         model_id = self.model_manager.resolve_model_id("custom_voice", model_size)
-        model = self.get_model(model_id, backend)
+        model, _, _ = self.get_model_for_backend(model_id, backend)
         wavs, sample_rate = model.generate_custom_voice(
             text=text,
             speaker=voice_name,
@@ -107,7 +152,7 @@ class TtsEngine:
         language: str,
     ) -> SynthesisResult:
         model_id = self.model_manager.resolve_model_id("base", model_size)
-        model = self.get_model(model_id, backend)
+        model, _, _ = self.get_model_for_backend(model_id, backend)
         wavs, sample_rate = model.generate_voice_clone(
             text=text,
             language=language,
@@ -124,7 +169,7 @@ class TtsEngine:
         backend: str,
     ) -> List[VoiceClonePromptItem]:
         model_id = self.model_manager.resolve_model_id("base", model_size)
-        model = self.get_model(model_id, backend)
+        model, _, _ = self.get_model_for_backend(model_id, backend)
         x_vector_only_mode = not bool(ref_text)
         prompt = model.create_voice_clone_prompt(
             ref_audio=audio,
@@ -140,7 +185,7 @@ class TtsEngine:
         backend: str,
     ) -> SynthesisResult:
         model_id = self.model_manager.resolve_model_id("voice_design", "1.7b")
-        model = self.get_model(model_id, backend)
+        model, _, _ = self.get_model_for_backend(model_id, backend)
         wavs, sample_rate = model.generate_voice_design(
             text=seed_text,
             language="Auto",

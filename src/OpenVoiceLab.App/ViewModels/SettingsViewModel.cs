@@ -22,7 +22,7 @@ public partial class SettingsViewModel : ObservableObject
     public ObservableCollection<PronunciationProfileOption> PronunciationProfiles { get; } = new();
 
     [ObservableProperty]
-    private PronunciationProfileOption? _selectedPronunciationProfile;
+    private string? _selectedPronunciationProfileId = SettingsStore.DefaultPronunciationProfileId;
 
     [ObservableProperty]
     private string? _engineLog;
@@ -54,9 +54,9 @@ public partial class SettingsViewModel : ObservableObject
         SettingsStore.KeepRefAudio = value;
     }
 
-    partial void OnSelectedPronunciationProfileChanged(PronunciationProfileOption? value)
+    partial void OnSelectedPronunciationProfileIdChanged(string? value)
     {
-        SettingsStore.DefaultPronunciationProfileId = value?.Id;
+        SettingsStore.DefaultPronunciationProfileId = value;
     }
 
     public void RefreshLog()
@@ -87,7 +87,8 @@ public partial class SettingsViewModel : ObservableObject
             PronunciationProfiles.Add(new PronunciationProfileOption(profile.ProfileId, profile.Name));
         }
         var defaultId = SettingsStore.DefaultPronunciationProfileId;
-        SelectedPronunciationProfile = PronunciationProfiles.FirstOrDefault(option => option.Id == defaultId)
+        var selected = PronunciationProfiles.FirstOrDefault(option => option.Id == defaultId)
             ?? PronunciationProfiles.FirstOrDefault();
+        SelectedPronunciationProfileId = selected?.Id;
     }
 }
