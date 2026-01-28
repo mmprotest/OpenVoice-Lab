@@ -22,7 +22,8 @@
    pip install torch==2.3.1+cu121 --index-url https://download.pytorch.org/whl/cu121
    ```
    You can also use `worker/requirements-cuda.txt` as a reminder.
-5. Run the worker:
+5. The WinUI app will start the worker automatically (via WorkerSupervisor). If you want to run
+   the worker manually for debugging, you can still launch it:
    ```powershell
    uvicorn app:app --host 127.0.0.1 --port 23456
    ```
@@ -41,5 +42,5 @@ Expect several GB of disk usage for all sizes.
 3. Restore NuGet packages and run.
 
 ## Development Scripts
-- `scripts/run-dev.ps1` starts the worker and the WinUI app in sequence.
+- `scripts/run-dev.ps1` prepares the worker venv/deps and starts the WinUI app (the app starts the worker).
 - `scripts/build.ps1` builds the .NET solution and runs Python tests.

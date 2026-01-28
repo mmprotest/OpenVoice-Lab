@@ -84,6 +84,11 @@ public class WorkerSupervisor
         return string.Join(Environment.NewLine, lines.TakeLast(maxLines));
     }
 
+    public void AppendLogEntry(string message)
+    {
+        AppendLog(message);
+    }
+
     private void AppendLog(string? line)
     {
         if (string.IsNullOrWhiteSpace(line))

@@ -45,7 +45,7 @@ public partial class PlaygroundViewModel : ObservableObject
     private string? _lastOutputPath;
 
     [ObservableProperty]
-    private PronunciationProfileOption? _selectedPronunciationProfile;
+    private string? _selectedPronunciationProfileId = SettingsStore.DefaultPronunciationProfileId;
 
     [ObservableProperty]
     private bool _isModelsBannerVisible;
@@ -55,6 +55,12 @@ public partial class PlaygroundViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _canGenerate = true;
+
+    [ObservableProperty]
+    private string? _warningMessage;
+
+    [ObservableProperty]
+    private bool _isWarningVisible;
 
     public PlaygroundViewModel(AppServices services)
     {
@@ -94,6 +100,7 @@ public partial class PlaygroundViewModel : ObservableObject
             Status = "Select a voice and enter text.";
             return;
         }
+        WarningMessage = null;
         var api = await _services.GetApiAsync();
         var request = new TtsRequest(
             SelectedVoice.VoiceId,
@@ -104,11 +111,16 @@ public partial class PlaygroundViewModel : ObservableObject
             SelectedBackend,
             24000,
             EnableSsmlLite,
-            SelectedPronunciationProfile?.Id ?? SettingsStore.DefaultPronunciationProfileId,
+            SelectedPronunciationProfileId ?? SettingsStore.DefaultPronunciationProfileId,
             SettingsStore.CurrentProjectId
         );
         var response = await api.CreateTtsAsync(request);
         LastOutputPath = response.OutputPath;
+        WarningMessage = response.Warning;
+        if (!string.IsNullOrWhiteSpace(response.Warning))
+        {
+            _services.Worker.AppendLogEntry($"Warning: {response.Warning}");
+        }
         Status = $"Generated {response.DurationMs} ms";
     }
 
@@ -124,6 +136,7 @@ public partial class PlaygroundViewModel : ObservableObject
             Status = "Select a voice and enter text.";
             return null;
         }
+        WarningMessage = null;
         var api = await _services.GetApiAsync();
         var request = new TtsRequest(
             SelectedVoice.VoiceId,
@@ -134,7 +147,7 @@ public partial class PlaygroundViewModel : ObservableObject
             SelectedBackend,
             24000,
             EnableSsmlLite,
-            SelectedPronunciationProfile?.Id ?? SettingsStore.DefaultPronunciationProfileId,
+            SelectedPronunciationProfileId ?? SettingsStore.DefaultPronunciationProfileId,
             SettingsStore.CurrentProjectId
         );
         using var stream = await api.StreamTtsAsync(request);
@@ -162,7 +175,13 @@ public partial class PlaygroundViewModel : ObservableObject
             PronunciationProfiles.Add(new PronunciationProfileOption(profile.ProfileId, profile.Name));
         }
         var defaultId = SettingsStore.DefaultPronunciationProfileId;
-        SelectedPronunciationProfile = PronunciationProfiles.FirstOrDefault(option => option.Id == defaultId)
+        var selected = PronunciationProfiles.FirstOrDefault(option => option.Id == defaultId)
             ?? PronunciationProfiles.FirstOrDefault();
+        SelectedPronunciationProfileId = selected?.Id;
+    }
+
+    partial void OnWarningMessageChanged(string? value)
+    {
+        IsWarningVisible = !string.IsNullOrWhiteSpace(value);
     }
 }

@@ -1,3 +1,4 @@
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using OpenVoiceLab.Shared;
 
@@ -33,6 +34,9 @@ public partial class ModelItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDownloaded;
 
+    [ObservableProperty]
+    private bool _isPathAvailable;
+
     public ModelItemViewModel(ModelSupport support)
     {
         ModelId = support.ModelId;
@@ -58,7 +62,7 @@ public partial class ModelItemViewModel : ObservableObject
 
     public string ProgressText => $"{Progress}%";
 
-    public bool CanOpenFolder => !string.IsNullOrWhiteSpace(Path);
+    public bool CanOpenFolder => IsPathAvailable;
 
     public void UpdateFromStatus(ModelStatus status)
     {
@@ -71,6 +75,7 @@ public partial class ModelItemViewModel : ObservableObject
         IsDownloaded = status.Status.Equals("completed", StringComparison.OrdinalIgnoreCase);
         IsDownloading = status.Status.Equals("downloading", StringComparison.OrdinalIgnoreCase)
             || status.Status.Equals("pending", StringComparison.OrdinalIgnoreCase);
+        UpdatePathAvailability();
     }
 
     public void UpdateFromEvent(ModelDownloadEvent evt)
@@ -83,6 +88,7 @@ public partial class ModelItemViewModel : ObservableObject
         IsDownloaded = evt.Stage.Equals("completed", StringComparison.OrdinalIgnoreCase);
         IsDownloading = evt.Stage.Equals("downloading", StringComparison.OrdinalIgnoreCase)
             || evt.Stage.Equals("pending", StringComparison.OrdinalIgnoreCase);
+        UpdatePathAvailability();
     }
 
     partial void OnIsDownloadingChanged(bool value)
@@ -110,6 +116,12 @@ public partial class ModelItemViewModel : ObservableObject
 
     partial void OnPathChanged(string? value)
     {
+        UpdatePathAvailability();
+    }
+
+    private void UpdatePathAvailability()
+    {
+        IsPathAvailable = !string.IsNullOrWhiteSpace(Path) && Directory.Exists(Path);
         OnPropertyChanged(nameof(CanOpenFolder));
     }
 }

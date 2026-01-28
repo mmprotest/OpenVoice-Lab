@@ -140,6 +140,46 @@ def _apply_text_pipeline(request: TtsRequest) -> Tuple[str, Optional[str]]:
     return text, derived_style
 
 
+def _generate_custom_voice_chunks(
+    model,
+    chunks: Iterable[str],
+    voice_name: str,
+    language: str,
+    style: Optional[str],
+) -> Tuple[List[np.ndarray], int]:
+    audio_chunks: List[np.ndarray] = []
+    sample_rate = DEFAULT_SAMPLE_RATE
+    for chunk in chunks:
+        wavs, sample_rate = model.generate_custom_voice(
+            text=chunk,
+            speaker=voice_name,
+            language=language,
+            instruct=style or "",
+            non_streaming_mode=True,
+        )
+        audio_chunks.append(wavs[0])
+    return audio_chunks, sample_rate
+
+
+def _generate_voice_clone_chunks(
+    model,
+    chunks: Iterable[str],
+    prompt,
+    language: str,
+) -> Tuple[List[np.ndarray], int]:
+    audio_chunks: List[np.ndarray] = []
+    sample_rate = DEFAULT_SAMPLE_RATE
+    for chunk in chunks:
+        wavs, sample_rate = model.generate_voice_clone(
+            text=chunk,
+            language=language,
+            voice_clone_prompt=prompt,
+            non_streaming_mode=True,
+        )
+        audio_chunks.append(wavs[0])
+    return audio_chunks, sample_rate
+
+
 def _resolve_voice_meta(voice_id: str) -> Tuple[str, Optional[Path]]:
     if voice_id.startswith("preset::"):
         return "preset", None
@@ -200,7 +240,7 @@ async def _ensure_wav_audio(upload: UploadFile) -> Tuple[np.ndarray, int]:
     return audio.astype(np.float32), sr
 
 
-def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int]:
+def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str, Optional[str]]:
     text, derived_style = _apply_text_pipeline(request)
     style = ", ".join(filter(None, [request.style, derived_style])) if request.style or derived_style else None
     chunks = chunk_text(text)
@@ -210,36 +250,27 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int]:
     voice_kind, voice_path = _resolve_voice_meta(request.voice_id)
     if voice_kind == "preset":
         voice_name = request.voice_id.split("::", 1)[1]
-        for chunk in chunks:
-            result = engine.synthesize_custom_voice(
-                text=chunk,
-                voice_name=voice_name,
-                model_size=request.model_size,
-                backend=request.backend,
-                language=request.language,
-                instruct=style,
-            )
-            sample_rate = result.sample_rate
-            audio_chunks.append(result.audio)
+        model_id = engine.model_manager.resolve_model_id("custom_voice", request.model_size)
+        (audio_chunks, sample_rate), backend_used, warning = engine.run_with_backend(
+            model_id,
+            request.backend,
+            lambda model: _generate_custom_voice_chunks(model, chunks, voice_name, request.language, style),
+        )
     else:
         prompt = _load_clone_prompt(voice_path)
-        for chunk in chunks:
-            result = engine.synthesize_clone(
-                text=chunk,
-                voice_clone_prompt=prompt,
-                model_size=request.model_size,
-                backend=request.backend,
-                language=request.language,
-            )
-            sample_rate = result.sample_rate
-            audio_chunks.append(result.audio)
-    return audio_chunks, sample_rate
+        model_id = engine.model_manager.resolve_model_id("base", request.model_size)
+        (audio_chunks, sample_rate), backend_used, warning = engine.run_with_backend(
+            model_id,
+            request.backend,
+            lambda model: _generate_voice_clone_chunks(model, chunks, prompt, request.language),
+        )
+    return audio_chunks, sample_rate, backend_used, warning
 
 
-def _synthesize(request: TtsRequest) -> Tuple[np.ndarray, int]:
-    audio_chunks, sample_rate = _synthesize_chunks(request)
+def _synthesize(request: TtsRequest) -> Tuple[np.ndarray, int, str, Optional[str]]:
+    audio_chunks, sample_rate, backend_used, warning = _synthesize_chunks(request)
     stitched = stitch_audio(audio_chunks, sample_rate)
-    return stitched, sample_rate
+    return stitched, sample_rate, backend_used, warning
 
 
 @app.get("/health")
@@ -442,7 +473,7 @@ async def voices_delete(voice_id: str) -> Dict[str, str]:
 @app.post("/tts")
 async def tts(request: TtsRequest, background_tasks: BackgroundTasks):
     job_id = _job_id()
-    audio, sample_rate = _synthesize(request)
+    audio, sample_rate, backend_used, warning = _synthesize(request)
     output_path = paths.outputs / f"{job_id}.wav"
     _write_wav(output_path, audio, sample_rate)
     duration_ms = int(len(audio) / sample_rate * 1000)
@@ -460,14 +491,14 @@ async def tts(request: TtsRequest, background_tasks: BackgroundTasks):
         "jobId": job_id,
         "outputPath": str(output_path),
         "durationMs": duration_ms,
-        "backendUsed": request.backend,
-        "warning": None,
+        "backendUsed": backend_used,
+        "warning": warning,
     }
 
 
 @app.post("/tts/stream")
 async def tts_stream(request: TtsRequest):
-    audio_chunks, sample_rate = _synthesize_chunks(request)
+    audio_chunks, sample_rate, _, _ = _synthesize_chunks(request)
 
     def generator():
         for chunk in audio_chunks:

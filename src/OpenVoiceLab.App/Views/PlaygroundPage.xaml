@@ -29,7 +29,9 @@
             <ComboBox Header="Language" ItemsSource="{x:Bind ViewModel.Languages}" SelectedItem="{x:Bind ViewModel.SelectedLanguage, Mode=TwoWay}" />
             <ComboBox Header="Pronunciation profile"
                       ItemsSource="{x:Bind ViewModel.PronunciationProfiles}"
-                      SelectedItem="{x:Bind ViewModel.SelectedPronunciationProfile, Mode=TwoWay}" />
+                      SelectedValue="{x:Bind ViewModel.SelectedPronunciationProfileId, Mode=TwoWay}"
+                      SelectedValuePath="Id"
+                      DisplayMemberPath="Name" />
             <TextBox Header="Style Instruction" PlaceholderText="Warm, calm, cinematic" Text="{x:Bind ViewModel.Style, Mode=TwoWay}" />
             <CheckBox Content="Enable SSML-lite" IsChecked="{x:Bind ViewModel.EnableSsmlLite, Mode=TwoWay}" />
             <StackPanel Orientation="Horizontal" Spacing="12">
@@ -43,6 +45,9 @@
                 <Button Content="Export WAV" Click="OnExport" />
             </StackPanel>
             <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" />
+            <InfoBar Severity="Warning"
+                     IsOpen="{x:Bind ViewModel.IsWarningVisible, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.WarningMessage, Mode=OneWay}" />
             <TextBlock Text="Streaming playback buffers PCM into a WAV file for stable playback." FontSize="12" Opacity="0.7" />
         </StackPanel>
     </ScrollViewer>
