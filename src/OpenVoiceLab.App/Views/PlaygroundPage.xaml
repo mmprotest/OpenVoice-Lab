@@ -1,0 +1,40 @@
+<Page
+    x:Class="OpenVoiceLab.Views.PlaygroundPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <ScrollViewer>
+        <StackPanel Spacing="12" Padding="24">
+            <TextBlock Text="TTS Playground" FontSize="22" FontWeight="SemiBold" />
+            <TextBox Header="Text" AcceptsReturn="True" Height="120" TextWrapping="Wrap" />
+            <ComboBox Header="Language">
+                <ComboBoxItem Content="English" />
+                <ComboBoxItem Content="Chinese" />
+            </ComboBox>
+            <TextBox Header="Style Instruction" PlaceholderText="Warm, calm, cinematic" />
+            <Slider Header="Speed" Minimum="0.5" Maximum="1.5" Value="1" />
+            <Slider Header="Stability" Minimum="0" Maximum="1" Value="0.5" />
+            <Slider Header="Similarity" Minimum="0" Maximum="1" Value="0.5" />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <ComboBox Header="Model Size" Width="200">
+                    <ComboBoxItem Content="0.6B" />
+                    <ComboBoxItem Content="1.7B" />
+                </ComboBox>
+                <ComboBox Header="Backend" Width="200">
+                    <ComboBoxItem Content="Auto" />
+                    <ComboBoxItem Content="CPU" />
+                    <ComboBoxItem Content="CUDA" />
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Generate" />
+                <Button Content="Stream" />
+                <Button Content="Export WAV" />
+                <Button Content="Export MP3" />
+            </StackPanel>
+            <TextBlock Text="Streaming playback buffers PCM into a WAV file for stable playback." />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

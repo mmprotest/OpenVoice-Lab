@@ -1,0 +1,11 @@
+<Page
+    x:Class="OpenVoiceLab.Views.ProjectsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12" Padding="24">
+        <TextBlock Text="Projects" FontSize="22" FontWeight="SemiBold" />
+        <TextBox Header="New project name" />
+        <Button Content="Create Project" />
+        <TextBlock Text="Projects group history and exports." />
+    </StackPanel>
+</Page>

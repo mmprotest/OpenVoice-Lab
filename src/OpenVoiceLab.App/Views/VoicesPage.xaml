@@ -1,0 +1,20 @@
+<Page
+    x:Class="OpenVoiceLab.Views.VoicesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Spacing="12" Padding="24">
+            <TextBlock Text="Voice Library" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock Text="Preset voices and your saved clones/designs." />
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Clone Voice" />
+                <Button Content="Design Voice" />
+                <Button Content="Rename" />
+                <Button Content="Delete" />
+                <Button Content="Preview" />
+            </StackPanel>
+            <CheckBox Content="I have rights/consent to use this voice." />
+            <CheckBox Content="Keep reference audio (default off)" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>
