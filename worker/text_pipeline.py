@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -9,6 +9,21 @@ import numpy as np
 class SsmlHint:
     kind: str
     value: str
+
+
+@dataclass
+class TextSegment:
+    text: str
+    rate: Optional[str]
+    emphasis: Optional[str]
+
+
+@dataclass
+class BreakSegment:
+    seconds: float
+
+
+Segment = Union[TextSegment, BreakSegment]
 
 
 BREAK_SENTINEL_PREFIX = "[[BREAK:"
@@ -45,6 +60,63 @@ def parse_ssml_lite(text: str) -> Tuple[str, List[SsmlHint]]:
     )
     text = re.sub(r"<[^>]+>", "", text)
     return text.strip(), hints
+
+
+def parse_ssml_lite_segments(text: str) -> List[Segment]:
+    tokens = re.split(r"(<[^>]+>)", text)
+    rate_stack: List[Optional[str]] = []
+    emphasis_stack: List[Optional[str]] = []
+    segments: List[Segment] = []
+
+    def current_rate() -> Optional[str]:
+        return rate_stack[-1] if rate_stack else None
+
+    def current_emphasis() -> Optional[str]:
+        return emphasis_stack[-1] if emphasis_stack else None
+
+    for token in tokens:
+        if not token:
+            continue
+        if token.startswith("<") and token.endswith(">"):
+            tag = token.strip()
+            lower = tag.lower()
+            break_match = re.match(r"^<\s*break\s+time\s*=\s*\"(.*?)\"\s*/\s*>$", lower)
+            if break_match:
+                seconds = break_to_seconds(break_match.group(1))
+                segments.append(BreakSegment(seconds=seconds))
+                continue
+            prosody_open = re.match(r"^<\s*prosody\s+rate\s*=\s*\"(slow|fast)\"\s*>$", lower)
+            if prosody_open:
+                rate_stack.append(prosody_open.group(1))
+                continue
+            if re.match(r"^<\s*/\s*prosody\s*>$", lower):
+                if rate_stack:
+                    rate_stack.pop()
+                continue
+            emphasis_open = re.match(r"^<\s*emphasis\s+level\s*=\s*\"(moderate|strong)\"\s*>$", lower)
+            if emphasis_open:
+                emphasis_stack.append(emphasis_open.group(1))
+                continue
+            if re.match(r"^<\s*/\s*emphasis\s*>$", lower):
+                if emphasis_stack:
+                    emphasis_stack.pop()
+                continue
+            continue
+        segments.append(TextSegment(text=token, rate=current_rate(), emphasis=current_emphasis()))
+
+    merged: List[Segment] = []
+    for segment in segments:
+        if (
+            merged
+            and isinstance(segment, TextSegment)
+            and isinstance(merged[-1], TextSegment)
+            and merged[-1].rate == segment.rate
+            and merged[-1].emphasis == segment.emphasis
+        ):
+            merged[-1].text += segment.text
+        else:
+            merged.append(segment)
+    return merged
 
 
 def parse_break_sentinels(text: str) -> List[Tuple[str, str]]:
