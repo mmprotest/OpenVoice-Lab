@@ -1,12 +1,15 @@
 import numpy as np
 
 from text_pipeline import (
+    BreakSegment,
+    TextSegment,
     apply_pronunciation,
     break_to_seconds,
     chunk_text,
     hints_to_style,
     parse_break_sentinels,
     parse_ssml_lite,
+    parse_ssml_lite_segments,
     stitch_audio,
 )
 
@@ -51,3 +54,23 @@ def test_parse_break_sentinels():
 def test_break_to_seconds():
     assert break_to_seconds("300ms") == 0.3
     assert break_to_seconds("1s") == 1.0
+
+
+def test_parse_ssml_lite_segments_nested_and_merge():
+    segments = parse_ssml_lite_segments(
+        'Hello <prosody rate="slow"><emphasis level="moderate">world</emphasis></prosody>!!!'
+    )
+    assert isinstance(segments[0], TextSegment)
+    assert isinstance(segments[1], TextSegment)
+    assert segments[1].rate == "slow"
+    assert segments[1].emphasis == "moderate"
+    assert segments[0].text.strip() == "Hello"
+    assert segments[1].text.strip().startswith("world")
+
+
+def test_parse_ssml_lite_segments_breaks():
+    segments = parse_ssml_lite_segments('Hi<break time="300ms"/>there')
+    assert isinstance(segments[0], TextSegment)
+    assert isinstance(segments[1], BreakSegment)
+    assert isinstance(segments[2], TextSegment)
+    assert segments[1].seconds == 0.3

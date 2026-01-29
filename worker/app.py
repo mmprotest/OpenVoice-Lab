@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import io
 import json
 import logging
 import os
 import shutil
 import tempfile
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import soundfile as sf
@@ -23,16 +23,17 @@ from pydantic import ConfigDict
 
 from model_manager import ModelManager
 from audio_utils import resample_audio
+from dsp_utils import apply_style_dsp
 from prompt_storage import load_clone_prompt_safe, save_clone_prompt_safe
 from storage import Database, get_paths, read_json, write_json
 from text_pipeline import (
+    BreakSegment,
+    TextSegment,
     apply_pronunciation,
-    break_to_seconds,
     chunk_text,
-    hints_to_style,
     insert_silence,
-    parse_break_sentinels,
     parse_ssml_lite,
+    parse_ssml_lite_segments,
     stitch_audio,
 )
 from tts_engine import TtsEngine
@@ -142,13 +143,48 @@ def _apply_text_pipeline(request: TtsRequest) -> Tuple[str, Optional[str]]:
     text = request.text
     derived_style = None
     if request.enable_ssml_lite:
-        text, hints = parse_ssml_lite(text)
-        derived_style = hints_to_style(hints) or None
+        text, _ = parse_ssml_lite(text)
     entries = _load_pronunciation(request.pronunciation_profile_id)
     replacements = [(entry["from"], entry["to"]) for entry in entries]
     if replacements:
         text = apply_pronunciation(text, replacements)
     return text, derived_style
+
+
+def _apply_text_pipeline_segments(
+    request: TtsRequest,
+) -> Tuple[List[Union[TextSegment, BreakSegment]], Optional[str]]:
+    if request.enable_ssml_lite:
+        segments = parse_ssml_lite_segments(request.text)
+    else:
+        segments = [TextSegment(text=request.text, rate=None, emphasis=None)]
+    entries = _load_pronunciation(request.pronunciation_profile_id)
+    replacements = [(entry["from"], entry["to"]) for entry in entries]
+    if replacements:
+        for segment in segments:
+            if isinstance(segment, TextSegment):
+                segment.text = apply_pronunciation(segment.text, replacements)
+    return segments, None
+
+
+def _segment_instruct(base_style: Optional[str], rate: Optional[str], emphasis: Optional[str]) -> str:
+    parts = [part for part in (base_style or "").split(",") if part.strip()]
+    if rate == "slow":
+        parts.append("slow pace")
+    elif rate == "fast":
+        parts.append("fast pace")
+    if emphasis == "moderate":
+        parts.append("moderate emphasis")
+    elif emphasis == "strong":
+        parts.append("strong emphasis")
+    return ", ".join(part.strip() for part in parts if part.strip())
+
+
+def _iter_pcm_frames(raw: bytes, sample_rate: int, frame_duration: float = 0.02) -> Iterable[bytes]:
+    frame_samples = max(1, int(sample_rate * frame_duration))
+    frame_bytes = frame_samples * 2
+    for start in range(0, len(raw), frame_bytes):
+        yield raw[start : start + frame_bytes]
 
 
 def _resolve_voice_meta(voice_id: str) -> Tuple[str, Optional[Path]]:
@@ -236,28 +272,36 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str,
     if voice_kind == "preset":
         voice_name = request.voice_id.split("::", 1)[1]
         model_id = engine.model_manager.resolve_model_id("custom_voice", request.model_size)
+
         def _run(model):
-            text, derived_style = _apply_text_pipeline(request)
-            combined_style = ", ".join(filter(None, [request.style, derived_style])) if request.style or derived_style else None
-            segments = parse_break_sentinels(text)
+            segments, _ = _apply_text_pipeline_segments(request)
             audio_chunks_local: List[np.ndarray] = []
             sample_rate_local = DEFAULT_SAMPLE_RATE
-            for kind, value in segments:
-                if kind == "text":
-                    for chunk in chunk_text(value):
-                        if not chunk.strip():
-                            continue
-                        wavs, sample_rate_local = model.generate_custom_voice(
-                            text=chunk,
-                            speaker=voice_name,
-                            language=request.language,
-                            instruct=combined_style or "",
-                            non_streaming_mode=True,
-                        )
-                        audio_chunks_local.append(wavs[0])
-                elif kind == "break":
-                    seconds = break_to_seconds(value)
-                    audio_chunks_local.append(insert_silence(sample_rate_local, seconds))
+            for segment in segments:
+                if isinstance(segment, BreakSegment):
+                    audio_chunks_local.append(insert_silence(sample_rate_local, segment.seconds))
+                    continue
+                segment_text = segment.text
+                if not segment_text.strip():
+                    continue
+                segment_style = _segment_instruct(request.style, segment.rate, segment.emphasis)
+                logger.info(
+                    "preset segment rate=%s emphasis=%s style=%s",
+                    segment.rate,
+                    segment.emphasis,
+                    segment_style,
+                )
+                for chunk in chunk_text(segment_text):
+                    if not chunk.strip():
+                        continue
+                    wavs, sample_rate_local = model.generate_custom_voice(
+                        text=chunk,
+                        speaker=voice_name,
+                        language=request.language,
+                        instruct=segment_style,
+                        non_streaming_mode=True,
+                    )
+                    audio_chunks_local.append(wavs[0])
             return audio_chunks_local, sample_rate_local
 
         (audio_chunks, sample_rate), backend_used, warning = engine.run_with_backend(
@@ -268,34 +312,56 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str,
     else:
         prompt = _load_clone_prompt(voice_path)
         model_id = engine.model_manager.resolve_model_id("base", request.model_size)
+
         def _run(model):
-            text, _ = _apply_text_pipeline(request)
-            segments = parse_break_sentinels(text)
+            segments, _ = _apply_text_pipeline_segments(request)
             audio_chunks_local: List[np.ndarray] = []
             sample_rate_local = DEFAULT_SAMPLE_RATE
-            for kind, value in segments:
-                if kind == "text":
-                    for chunk in chunk_text(value):
-                        if not chunk.strip():
-                            continue
-                        try:
-                            wavs, sample_rate_local = model.generate_voice_clone(
-                                text=chunk,
-                                language=request.language,
-                                voice_clone_prompt=prompt,
-                                non_streaming_mode=True,
-                            )
-                        except TypeError as exc:
-                            if isinstance(prompt, list) and prompt and isinstance(prompt[0], dict):
-                                raise RuntimeError(
-                                    "Voice clone prompt reconstruction failed; "
-                                    f"type mismatch: {exc}"
-                                ) from exc
-                            raise
-                        audio_chunks_local.append(wavs[0])
-                elif kind == "break":
-                    seconds = break_to_seconds(value)
-                    audio_chunks_local.append(insert_silence(sample_rate_local, seconds))
+            params = inspect.signature(model.generate_voice_clone).parameters
+            supports_instruct = "instruct" in params
+            supports_style = "style" in params
+            for segment in segments:
+                if isinstance(segment, BreakSegment):
+                    audio_chunks_local.append(insert_silence(sample_rate_local, segment.seconds))
+                    continue
+                segment_text = segment.text
+                if not segment_text.strip():
+                    continue
+                segment_style = _segment_instruct(request.style, segment.rate, segment.emphasis)
+                logger.info(
+                    "clone segment rate=%s emphasis=%s style=%s supports_instruct=%s supports_style=%s",
+                    segment.rate,
+                    segment.emphasis,
+                    segment_style,
+                    supports_instruct,
+                    supports_style,
+                )
+                for chunk in chunk_text(segment_text):
+                    if not chunk.strip():
+                        continue
+                    kwargs = {
+                        "text": chunk,
+                        "language": request.language,
+                        "voice_clone_prompt": prompt,
+                        "non_streaming_mode": True,
+                    }
+                    if supports_instruct:
+                        kwargs["instruct"] = segment_style
+                    elif supports_style:
+                        kwargs["style"] = segment_style
+                    try:
+                        wavs, sample_rate_local = model.generate_voice_clone(**kwargs)
+                    except TypeError as exc:
+                        if isinstance(prompt, list) and prompt and isinstance(prompt[0], dict):
+                            raise RuntimeError(
+                                "Voice clone prompt reconstruction failed; "
+                                f"type mismatch: {exc}"
+                            ) from exc
+                        raise
+                    audio = wavs[0]
+                    if not (supports_instruct or supports_style):
+                        audio = apply_style_dsp(audio, sample_rate_local, segment.rate, segment.emphasis)
+                    audio_chunks_local.append(audio)
             return audio_chunks_local, sample_rate_local
 
         (audio_chunks, sample_rate), backend_used, warning = engine.run_with_backend(
@@ -540,22 +606,104 @@ async def tts(request: TtsRequest, background_tasks: BackgroundTasks):
 
 @app.post("/tts/stream")
 async def tts_stream(request: TtsRequest):
-    audio_chunks, sample_rate, _, _ = _synthesize_chunks(request)
+    voice_kind, voice_path = _resolve_voice_meta(request.voice_id)
+    target_sample_rate = request.sample_rate
+    segments, _ = _apply_text_pipeline_segments(request)
 
-    def generator():
-        target_sample_rate = request.sample_rate
-        frame_samples = max(1, int(target_sample_rate * 0.02))
-        for chunk in audio_chunks:
-            if sample_rate != target_sample_rate:
-                chunk = resample_audio(chunk, orig_sr=sample_rate, target_sr=target_sample_rate)
-            audio_int16 = np.clip(chunk, -1.0, 1.0)
-            audio_int16 = (audio_int16 * 32767).astype(np.int16)
-            raw = audio_int16.tobytes()
-            frame_bytes = frame_samples * 2
-            for start in range(0, len(raw), frame_bytes):
-                frame = raw[start : start + frame_bytes]
-                yield frame
-                time.sleep(frame_samples / target_sample_rate)
+    async def generator():
+        if voice_kind == "preset":
+            voice_name = request.voice_id.split("::", 1)[1]
+            model_id = engine.model_manager.resolve_model_id("custom_voice", request.model_size)
+            model, _, _ = engine.get_model_for_backend(model_id, request.backend)
+            sample_rate_local = DEFAULT_SAMPLE_RATE
+            for segment in segments:
+                if isinstance(segment, BreakSegment):
+                    silence = insert_silence(target_sample_rate, segment.seconds)
+                    raw = _to_pcm_bytes(silence)
+                    async for frame in _stream_frames(raw, target_sample_rate):
+                        yield frame
+                    continue
+                if not segment.text.strip():
+                    continue
+                segment_style = _segment_instruct(request.style, segment.rate, segment.emphasis)
+                logger.info(
+                    "preset stream segment rate=%s emphasis=%s style=%s",
+                    segment.rate,
+                    segment.emphasis,
+                    segment_style,
+                )
+                for chunk in chunk_text(segment.text):
+                    if not chunk.strip():
+                        continue
+                    wavs, sample_rate_local = model.generate_custom_voice(
+                        text=chunk,
+                        speaker=voice_name,
+                        language=request.language,
+                        instruct=segment_style,
+                        non_streaming_mode=True,
+                    )
+                    audio = wavs[0]
+                    if sample_rate_local != target_sample_rate:
+                        audio = resample_audio(audio, orig_sr=sample_rate_local, target_sr=target_sample_rate)
+                    raw = _to_pcm_bytes(audio)
+                    async for frame in _stream_frames(raw, target_sample_rate):
+                        yield frame
+        else:
+            prompt = _load_clone_prompt(voice_path)
+            model_id = engine.model_manager.resolve_model_id("base", request.model_size)
+            model, _, _ = engine.get_model_for_backend(model_id, request.backend)
+            params = inspect.signature(model.generate_voice_clone).parameters
+            supports_instruct = "instruct" in params
+            supports_style = "style" in params
+            sample_rate_local = DEFAULT_SAMPLE_RATE
+            for segment in segments:
+                if isinstance(segment, BreakSegment):
+                    silence = insert_silence(target_sample_rate, segment.seconds)
+                    raw = _to_pcm_bytes(silence)
+                    async for frame in _stream_frames(raw, target_sample_rate):
+                        yield frame
+                    continue
+                if not segment.text.strip():
+                    continue
+                segment_style = _segment_instruct(request.style, segment.rate, segment.emphasis)
+                logger.info(
+                    "clone stream segment rate=%s emphasis=%s style=%s supports_instruct=%s supports_style=%s",
+                    segment.rate,
+                    segment.emphasis,
+                    segment_style,
+                    supports_instruct,
+                    supports_style,
+                )
+                for chunk in chunk_text(segment.text):
+                    if not chunk.strip():
+                        continue
+                    kwargs = {
+                        "text": chunk,
+                        "language": request.language,
+                        "voice_clone_prompt": prompt,
+                        "non_streaming_mode": True,
+                    }
+                    if supports_instruct:
+                        kwargs["instruct"] = segment_style
+                    elif supports_style:
+                        kwargs["style"] = segment_style
+                    try:
+                        wavs, sample_rate_local = model.generate_voice_clone(**kwargs)
+                    except TypeError as exc:
+                        if isinstance(prompt, list) and prompt and isinstance(prompt[0], dict):
+                            raise RuntimeError(
+                                "Voice clone prompt reconstruction failed; "
+                                f"type mismatch: {exc}"
+                            ) from exc
+                        raise
+                    audio = wavs[0]
+                    if not (supports_instruct or supports_style):
+                        audio = apply_style_dsp(audio, sample_rate_local, segment.rate, segment.emphasis)
+                    if sample_rate_local != target_sample_rate:
+                        audio = resample_audio(audio, orig_sr=sample_rate_local, target_sr=target_sample_rate)
+                    raw = _to_pcm_bytes(audio)
+                    async for frame in _stream_frames(raw, target_sample_rate):
+                        yield frame
 
     headers = {
         "X-Sample-Rate": str(request.sample_rate),
@@ -563,6 +711,19 @@ async def tts_stream(request: TtsRequest):
         "X-Channels": "1",
     }
     return StreamingResponse(generator(), media_type="application/octet-stream", headers=headers)
+
+
+def _to_pcm_bytes(audio: np.ndarray) -> bytes:
+    audio_int16 = np.clip(audio, -1.0, 1.0)
+    audio_int16 = (audio_int16 * 32767).astype(np.int16)
+    return audio_int16.tobytes()
+
+
+async def _stream_frames(raw: bytes, sample_rate: int) -> Iterable[bytes]:
+    for frame in _iter_pcm_frames(raw, sample_rate):
+        yield frame
+        actual_samples = max(1, len(frame) // 2)
+        await asyncio.sleep(actual_samples / sample_rate)
 
 
 @app.get("/projects")
