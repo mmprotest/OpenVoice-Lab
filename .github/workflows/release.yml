@@ -20,6 +20,10 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - name: Install Windows 10 SDK 19041
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+        with:
+          sdk-version: 19041
       - name: Show .NET info
         shell: pwsh
         run: |
