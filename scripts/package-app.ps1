@@ -7,7 +7,7 @@ $publishDir = Join-Path $repoRoot "artifacts/app"
 $exePath = Join-Path $publishDir "OpenVoiceLab.App.exe"
 
 dotnet restore $solution
-dotnet publish $project -c Release -o $publishDir
+dotnet publish $project -c Release -r win-x64 --self-contained false -o $publishDir
 
 if (!(Test-Path $exePath)) {
     throw "OpenVoiceLab.App.exe not found in $publishDir"
