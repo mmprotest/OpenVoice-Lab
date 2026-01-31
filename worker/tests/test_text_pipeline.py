@@ -1,5 +1,4 @@
 import numpy as np
-
 from text_pipeline import (
     BreakSegment,
     TextSegment,
@@ -16,7 +15,8 @@ from text_pipeline import (
 
 def test_parse_ssml_lite_strips_tags():
     text, hints = parse_ssml_lite(
-        'Hello <break time="300ms"/> <prosody rate="fast">world</prosody> <emphasis level="strong">!</emphasis>'
+        'Hello <break time="300ms"/> <prosody rate="fast">world</prosody> '
+        '<emphasis level="strong">!</emphasis>'
     )
     assert "Hello" in text
     assert "world" in text
@@ -25,7 +25,9 @@ def test_parse_ssml_lite_strips_tags():
 
 
 def test_hints_to_style():
-    _, hints = parse_ssml_lite('<prosody rate="slow">hi</prosody> <emphasis level="moderate">there</emphasis>')
+    _, hints = parse_ssml_lite(
+        '<prosody rate="slow">hi</prosody> <emphasis level="moderate">there</emphasis>'
+    )
     style = hints_to_style(hints)
     assert "slow" in style
     assert "emphasis" in style

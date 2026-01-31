@@ -3,10 +3,9 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from huggingface_hub import HfApi, snapshot_download
-
 
 MODEL_SPECS = {
     "custom_voice": {
@@ -88,11 +87,18 @@ class ModelManager:
 
     def download(self, model_id: str) -> ModelDownloadState:
         with self._download_lock:
-            if model_id in self.downloads and self.downloads[model_id].status in {"downloading", "completed"}:
+            if model_id in self.downloads and self.downloads[model_id].status in {
+                "downloading",
+                "completed",
+            }:
                 return self.downloads[model_id]
             local_dir = self._local_dir_for(model_id)
             total_bytes = self.get_total_bytes(model_id)
-            state = ModelDownloadState(model_id=model_id, local_dir=local_dir, total_bytes=total_bytes)
+            state = ModelDownloadState(
+                model_id=model_id,
+                local_dir=local_dir,
+                total_bytes=total_bytes,
+            )
             self.downloads[model_id] = state
         state.status = "downloading"
         try:
@@ -115,7 +121,11 @@ class ModelManager:
             return self.downloads[model_id]
         local_dir = self._local_dir_for(model_id)
         total_bytes = self.get_total_bytes(model_id)
-        state = ModelDownloadState(model_id=model_id, local_dir=local_dir, total_bytes=total_bytes)
+        state = ModelDownloadState(
+            model_id=model_id,
+            local_dir=local_dir,
+            total_bytes=total_bytes,
+        )
         state.downloaded_bytes = self.get_downloaded_bytes(model_id)
         if self.is_downloaded(model_id):
             state.status = "completed"
@@ -125,5 +135,9 @@ class ModelManager:
     def update_progress(self, model_id: str) -> None:
         state = self.ensure_download_state(model_id)
         state.downloaded_bytes = self.get_downloaded_bytes(model_id)
-        if state.status == "downloading" and state.total_bytes and state.downloaded_bytes >= state.total_bytes:
+        if (
+            state.status == "downloading"
+            and state.total_bytes
+            and state.downloaded_bytes >= state.total_bytes
+        ):
             state.status = "completed"

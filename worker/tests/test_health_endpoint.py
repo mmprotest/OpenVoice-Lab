@@ -1,7 +1,6 @@
 import pytest
-from fastapi.testclient import TestClient
-
 from app import app
+from fastapi.testclient import TestClient
 
 
 def test_health_endpoint_returns_ok_and_version():

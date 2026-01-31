@@ -128,7 +128,9 @@ class Database:
 
     def list_projects(self) -> List[Dict[str, Any]]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT project_id, name, created_at FROM projects ORDER BY created_at DESC").fetchall()
+            rows = conn.execute(
+                "SELECT project_id, name, created_at FROM projects ORDER BY created_at DESC"
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def create_project(self, project_id: str, name: str, created_at: str) -> None:
@@ -144,7 +146,15 @@ class Database:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO history
-                    (job_id, text, voice_id, output_path, created_at, project_id, pronunciation_profile_id)
+                    (
+                        job_id,
+                        text,
+                        voice_id,
+                        output_path,
+                        created_at,
+                        project_id,
+                        pronunciation_profile_id
+                    )
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -159,9 +169,16 @@ class Database:
             )
             conn.commit()
 
-    def list_history(self, limit: int, project_id: Optional[str], query: Optional[str]) -> List[Dict[str, Any]]:
+    def list_history(
+        self,
+        limit: int,
+        project_id: Optional[str],
+        query: Optional[str],
+    ) -> List[Dict[str, Any]]:
         sql = (
-            "SELECT job_id, text, voice_id, output_path, created_at, project_id, pronunciation_profile_id FROM history"
+            "SELECT job_id, text, voice_id, output_path, created_at, "
+            "project_id, pronunciation_profile_id "
+            "FROM history"
         )
         params: List[Any] = []
         clauses = []
@@ -183,8 +200,10 @@ class Database:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT job_id, text, voice_id, output_path, created_at, project_id, pronunciation_profile_id
-                FROM history WHERE job_id = ?
+                SELECT job_id, text, voice_id, output_path, created_at, project_id,
+                    pronunciation_profile_id
+                FROM history
+                WHERE job_id = ?
                 """,
                 (job_id,),
             ).fetchone()
@@ -193,7 +212,9 @@ class Database:
     def list_pronunciation_profiles(self) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             profiles = conn.execute(
-                "SELECT profile_id, name, created_at FROM pronunciation_profiles ORDER BY created_at DESC"
+                "SELECT profile_id, name, created_at "
+                "FROM pronunciation_profiles "
+                "ORDER BY created_at DESC"
             ).fetchall()
             entries = conn.execute(
                 "SELECT profile_id, source, target FROM pronunciation_entries"
@@ -211,12 +232,18 @@ class Database:
     def create_pronunciation_profile(self, profile_id: str, name: str, created_at: str) -> None:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO pronunciation_profiles (profile_id, name, created_at) VALUES (?, ?, ?)",
+                "INSERT INTO pronunciation_profiles "
+                "(profile_id, name, created_at) "
+                "VALUES (?, ?, ?)",
                 (profile_id, name, created_at),
             )
             conn.commit()
 
-    def update_pronunciation_entries(self, profile_id: str, entries: Iterable[Dict[str, str]]) -> None:
+    def update_pronunciation_entries(
+        self,
+        profile_id: str,
+        entries: Iterable[Dict[str, str]],
+    ) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM pronunciation_entries WHERE profile_id = ?", (profile_id,))
             conn.executemany(

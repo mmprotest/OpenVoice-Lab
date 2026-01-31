@@ -85,7 +85,10 @@ def _reconstruct_prompt(data: Any) -> Any:
             try:
                 return [VoiceClonePromptItem(**item) for item in data]
             except Exception as exc:  # noqa: BLE001
-                logger.warning("VoiceClonePromptItem reconstruction failed; using dicts. Error: %s", exc)
+                logger.warning(
+                    "VoiceClonePromptItem reconstruction failed; using dicts. Error: %s",
+                    exc,
+                )
                 return data
     return data
 
