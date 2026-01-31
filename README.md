@@ -31,7 +31,7 @@ App data (models, voices, logs) is stored in:
 
 ## First run
 1. Open the app.
-2. Go to **Models** and download a model.
+2. Go to **Models** and download a model (downloads are on-demand; once a model is downloaded, it can be used offline).
 3. Go to **Playground** to generate speech.
 
 The worker runtime starts automatically in the background and uses a local-only
@@ -39,11 +39,12 @@ connection (127.0.0.1). You never need to open a terminal or manage Python.
 
 ## Uninstall
 - Use **Settings → Apps → Installed apps → OpenVoice Lab → Uninstall**.
-- The uninstaller includes an option to remove user data at
+- The uninstaller prompts to remove user data (voices, models, logs) from
   `%LOCALAPPDATA%\OpenVoiceLab`.
 
 ## Troubleshooting
 - **App says worker is unavailable**: restart the app to relaunch the worker.
+- **Find logs**: worker and app logs are stored in `%LOCALAPPDATA%\OpenVoiceLab\logs`.
 - **Slow generation**: ensure you downloaded a model and that your GPU drivers are up to date.
 - **Disk usage is high**: remove unused models from the **Models** page or delete
   `%LOCALAPPDATA%\OpenVoiceLab\models\`.

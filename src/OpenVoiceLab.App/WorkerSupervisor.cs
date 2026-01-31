@@ -11,18 +11,21 @@ public class WorkerSupervisor
     private int _port;
     private bool _stopping;
     private readonly object _lock = new();
+    private readonly string _logDir;
     private readonly string _logPath;
     private readonly string _workerDir;
+    private TaskCompletionSource<int> _portTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public int Port => _port;
     public string LogPath => _logPath;
+    public string LogDirectory => _logDir;
 
     public WorkerSupervisor()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var logDir = Path.Combine(localAppData, "OpenVoiceLab", "logs");
-        Directory.CreateDirectory(logDir);
-        _logPath = Path.Combine(logDir, "worker.log");
+        _logDir = Path.Combine(localAppData, "OpenVoiceLab", "logs");
+        Directory.CreateDirectory(_logDir);
+        _logPath = Path.Combine(_logDir, "worker.log");
         _workerDir = LocateWorkerDirectory();
     }
 
@@ -34,17 +37,19 @@ public class WorkerSupervisor
             {
                 return;
             }
-            _port = FindFreePort(20000, 40000);
+            _port = 0;
+            _portTcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             var workerExePath = LocateWorkerExecutable(_workerDir);
             if (string.IsNullOrWhiteSpace(workerExePath))
             {
                 AppendLog("Worker executable not found. Ensure the worker runtime is installed.");
+                _portTcs.TrySetException(new InvalidOperationException("Worker executable not found."));
                 return;
             }
             var startInfo = new ProcessStartInfo
             {
                 FileName = workerExePath,
-                Arguments = $"--host 127.0.0.1 --port {_port} --log-level info",
+                Arguments = "--host 127.0.0.1 --port 0 --log-level info",
                 WorkingDirectory = _workerDir,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -58,7 +63,7 @@ public class WorkerSupervisor
             startInfo.Environment["HF_HUB_DISABLE_TELEMETRY"] = "1";
             startInfo.Environment["TOKENIZERS_PARALLELISM"] = "false";
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            _process.OutputDataReceived += (_, args) => AppendLog(args.Data);
+            _process.OutputDataReceived += (_, args) => HandleOutput(args.Data);
             _process.ErrorDataReceived += (_, args) => AppendLog(args.Data);
             _process.Exited += OnProcessExited;
             _process.Start();
@@ -68,6 +73,16 @@ public class WorkerSupervisor
     }
 
     public string BuildHealthUrl() => $"http://127.0.0.1:{_port}/health";
+
+    public async Task<int> WaitForPortAsync(TimeSpan timeout)
+    {
+        var completed = await Task.WhenAny(_portTcs.Task, Task.Delay(timeout));
+        if (completed != _portTcs.Task)
+        {
+            throw new TimeoutException("Timed out waiting for worker port.");
+        }
+        return await _portTcs.Task;
+    }
 
     public async Task<bool> WaitForHealthAsync(TimeSpan timeout)
     {
@@ -116,6 +131,21 @@ public class WorkerSupervisor
         File.AppendAllText(_logPath, entry, Encoding.UTF8);
     }
 
+    private void HandleOutput(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+        AppendLog(line);
+        if (TryParseWorkerPort(line, out var port))
+        {
+            _port = port;
+            AppendLog($"Worker port detected: {port}");
+            _portTcs.TrySetResult(port);
+        }
+    }
+
     private void Restart()
     {
         if (_stopping)
@@ -128,6 +158,11 @@ public class WorkerSupervisor
 
     public void Stop()
     {
+        StopAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task StopAsync()
+    {
         lock (_lock)
         {
             _stopping = true;
@@ -136,50 +171,50 @@ public class WorkerSupervisor
                 return;
             }
             _process.Exited -= OnProcessExited;
-            try
+        }
+        await RequestShutdownAsync();
+        try
+        {
+            if (_process is null)
             {
-                if (!_process.HasExited)
-                {
-                    _process.CloseMainWindow();
-                    if (!_process.WaitForExit(2000))
-                    {
-                        _process.Kill(true);
-                    }
-                }
+                return;
             }
-            catch (InvalidOperationException)
+            if (!_process.HasExited)
             {
+                await Task.Run(() => _process.WaitForExit(5000));
             }
-            finally
+            if (!_process.HasExited)
             {
-                _process.Dispose();
-                _process = null;
+                _process.Kill(true);
             }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        finally
+        {
+            _process?.Dispose();
+            _process = null;
         }
     }
 
-    public int FindFreePort(int minPort, int maxPort)
+    private async Task RequestShutdownAsync()
     {
-        var random = new Random();
-        for (var attempt = 0; attempt < 50; attempt++)
+        if (_port <= 0)
         {
-            var port = random.Next(minPort, maxPort + 1);
-            try
-            {
-                var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, port);
-                listener.Start();
-                listener.Stop();
-                return port;
-            }
-            catch
-            {
-            }
+            return;
         }
-        var fallback = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        fallback.Start();
-        var result = ((IPEndPoint)fallback.LocalEndpoint).Port;
-        fallback.Stop();
-        return result;
+        try
+        {
+            using var http = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(2)
+            };
+            await http.PostAsync($"http://127.0.0.1:{_port}/shutdown", new StringContent(string.Empty));
+        }
+        catch
+        {
+        }
     }
 
     private static string LocateWorkerDirectory()
@@ -212,8 +247,23 @@ public class WorkerSupervisor
         return null;
     }
 
+    internal static bool TryParseWorkerPort(string line, out int port)
+    {
+        port = 0;
+        const string Prefix = "WORKER_PORT=";
+        if (!line.StartsWith(Prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        return int.TryParse(line[Prefix.Length..], out port);
+    }
+
     private void OnProcessExited(object? sender, EventArgs args)
     {
+        if (!_portTcs.Task.IsCompleted)
+        {
+            _portTcs.TrySetException(new InvalidOperationException("Worker exited before reporting port."));
+        }
         Restart();
     }
 }

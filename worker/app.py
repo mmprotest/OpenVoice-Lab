@@ -16,7 +16,7 @@ from typing import Dict, Iterable, List, Optional, Tuple, Union
 import numpy as np
 import soundfile as sf
 import torch
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -384,6 +384,21 @@ def _synthesize(request: TtsRequest) -> Tuple[np.ndarray, int, str, Optional[str
 @app.get("/health")
 async def health() -> Dict[str, str]:
     return {"ok": True, "version": APP_VERSION}
+
+
+@app.post("/shutdown")
+async def shutdown(request: Request, background_tasks: BackgroundTasks) -> Dict[str, bool]:
+    if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    shutdown_event = getattr(app.state, "shutdown_event", None)
+
+    def _trigger_shutdown() -> None:
+        if shutdown_event is not None:
+            shutdown_event.set()
+
+    background_tasks.add_task(_trigger_shutdown)
+    return {"ok": True}
 
 
 @app.get("/system")
