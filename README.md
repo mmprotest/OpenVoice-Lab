@@ -1,75 +1,52 @@
 # OpenVoice Lab
 
-OpenVoice Lab pairs a WinUI desktop app with a Python worker to manage models, voices, and TTS
-jobs locally.
+OpenVoice Lab is a Windows desktop app for local text-to-speech (TTS). It pairs a WinUI
+front-end with a bundled worker that runs entirely on your machine—no cloud account or
+Python install required.
 
-## Table of contents
-- [Requirements](#requirements)
-- [Installation (Windows 11)](#installation-windows-11)
-  - [Clone the repository](#clone-the-repository)
-  - [Set up the Python worker](#set-up-the-python-worker)
-  - [Run the WinUI app](#run-the-winui-app)
-  - [Download models](#download-models)
-- [Development scripts](#development-scripts)
-- [Troubleshooting](#troubleshooting)
+## What it does
+- Generate speech from text using local TTS models.
+- Manage voices, projects, and pronunciation profiles.
+- Download and store models on your PC for offline use.
 
-## Requirements
-- Windows 11
-- Python 3.11+
-- .NET 8 SDK
-- Visual Studio 2022 with the **.NET desktop development** workload
-- (Optional) NVIDIA CUDA drivers + matching PyTorch CUDA build
+## System requirements
+- Windows 11 (x64)
+- 10+ GB free disk space for models (more if you keep multiple sizes)
+- Optional: NVIDIA GPU with compatible CUDA drivers for faster generation
 
-## Installation (Windows 11)
+## Install (Windows)
+1. Download the latest installer: `OpenVoiceLab-Setup.exe`.
+2. Run the installer (no admin rights required).
+3. Launch **OpenVoice Lab** from the Start menu.
 
-### Clone the repository
-```powershell
-git clone https://github.com/YourOrg/OpenVoice-Lab.git
-cd OpenVoice-Lab
+By default, the app installs to:
+```
+%LOCALAPPDATA%\Programs\OpenVoiceLab
 ```
 
-### Set up the Python worker
-Open PowerShell in `worker/`:
-```powershell
-cd worker
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+App data (models, voices, logs) is stored in:
+```
+%LOCALAPPDATA%\OpenVoiceLab
 ```
 
-Optional CUDA-enabled PyTorch (if you have compatible NVIDIA drivers):
-```powershell
-pip install torch==2.3.1+cu121 --index-url https://download.pytorch.org/whl/cu121
-```
-You can also use `worker/requirements-cuda.txt` as a reminder of the CUDA build.
+## First run
+1. Open the app.
+2. Go to **Models** and download a model.
+3. Go to **Playground** to generate speech.
 
-To run the worker manually for debugging:
-```powershell
-uvicorn app:app --host 127.0.0.1 --port 23456
-```
-The WinUI app normally starts the worker automatically via `WorkerSupervisor`.
+The worker runtime starts automatically in the background and uses a local-only
+connection (127.0.0.1). You never need to open a terminal or manage Python.
 
-### Run the WinUI app
-1. Open `OpenVoiceLab.sln` in Visual Studio 2022.
-2. Set `OpenVoiceLab.App` as the startup project.
-3. Restore NuGet packages and run.
-
-### Download models
-Models are stored in `%LOCALAPPDATA%\OpenVoiceLab\models\`.
-
-You can download models directly in the app (Models page) or via the worker API:
-```powershell
-curl -X POST http://127.0.0.1:23456/models/download `
-  -H "Content-Type: application/json" `
-  -d "{\"model_id\":\"Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice\"}"
-```
-Expect several GB of disk usage for all sizes.
-
-## Development scripts
-- `scripts/run-dev.ps1` prepares the worker venv/deps and starts the WinUI app (the app starts the worker).
-- `scripts/build.ps1` builds the .NET solution and runs Python tests.
+## Uninstall
+- Use **Settings → Apps → Installed apps → OpenVoice Lab → Uninstall**.
+- The uninstaller includes an option to remove user data at
+  `%LOCALAPPDATA%\OpenVoiceLab`.
 
 ## Troubleshooting
-- **Worker won’t start**: confirm the venv is active and `pip install -r requirements.txt` completed.
-- **CUDA errors**: install the CPU-only torch build or match the CUDA wheel to your driver.
-- **Models page is empty**: ensure the worker is running and reachable at `http://127.0.0.1:23456`.
+- **App says worker is unavailable**: restart the app to relaunch the worker.
+- **Slow generation**: ensure you downloaded a model and that your GPU drivers are up to date.
+- **Disk usage is high**: remove unused models from the **Models** page or delete
+  `%LOCALAPPDATA%\OpenVoiceLab\models\`.
+
+## For developers
+See the scripts in `scripts/` for building and packaging the app and worker.
