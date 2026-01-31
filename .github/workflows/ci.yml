@@ -42,6 +42,11 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - name: Show .NET info
+        shell: pwsh
+        run: |
+          dotnet --info
+          dotnet --list-sdks
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
