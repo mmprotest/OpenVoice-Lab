@@ -1,0 +1,19 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [
+  "artifacts",
+  "worker/.venv_build",
+  "worker/build",
+  "worker/dist",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: integration tests that may require large model downloads",
+]
+testpaths = ["worker/tests"]

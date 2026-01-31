@@ -1,0 +1,65 @@
+name: Build Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            worker/requirements.txt
+            pyproject.toml
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+          Write-Host "Inno Setup installed."
+
+      - name: Package app
+        shell: pwsh
+        run: |
+          ./scripts/package-app.ps1
+
+      - name: Package worker
+        shell: pwsh
+        run: |
+          ./scripts/package-worker.ps1
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          ./scripts/build-installer.ps1
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenVoiceLab-Setup
+          path: artifacts/installer/OpenVoiceLab-Setup.exe
+
+      # If this is a tag push, publish a GitHub Release and attach the installer.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/installer/OpenVoiceLab-Setup.exe
