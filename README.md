@@ -15,9 +15,12 @@ Python install required.
 - Optional: NVIDIA GPU with compatible CUDA drivers for faster generation
 
 ## Install (Windows)
-1. Download the latest installer: `OpenVoiceLab-Setup.exe`.
+1. Download the latest installer from GitHub Releases:
+   - `https://github.com/<OWNER>/<REPO>/releases/latest/download/OpenVoiceLab-Setup.exe`
 2. Run the installer (no admin rights required).
 3. Launch **OpenVoice Lab** from the Start menu.
+
+Note: Replace `<OWNER>/<REPO>` with this repository path if you forked or renamed it. The installer is published as a Release asset and is not stored in the git repo.
 
 By default, the app installs to:
 ```

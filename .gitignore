@@ -1,0 +1,22 @@
+# build outputs
+artifacts/
+**/bin/
+**/obj/
+
+# python
+worker/.venv_build/
+worker/.venv/
+worker/build/
+worker/dist/
+**/__pycache__/
+**/*.pyc
+
+# logs and temp
+*.log
+*.tmp
+.DS_Store
+
+# IDE
+.vscode/
+.vs/
+.idea/

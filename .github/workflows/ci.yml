@@ -7,24 +7,53 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
+
+      # ---------- Python (worker) ----------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            worker/requirements.txt
+            pyproject.toml
+
       - name: Install Python deps
         working-directory: worker
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
-      - name: Run Python tests
+          pip install pytest ruff
+
+      - name: Ruff lint (worker)
+        run: |
+          ruff check worker
+
+      - name: Run Python tests (worker)
         working-directory: worker
-        run: pytest
+        run: |
+          pytest -q
+
+      # ---------- .NET ----------
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.sln') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
       - name: Build .NET solution
-        run: dotnet build OpenVoiceLab.sln
+        run: dotnet build OpenVoiceLab.sln -c Release
+
+      - name: Run .NET tests
+        run: dotnet test OpenVoiceLab.sln -c Release --no-build
