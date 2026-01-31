@@ -68,7 +68,11 @@ def apply_style_dsp(
     if pitch_steps:
         processed = apply_pitch_shift(processed, pitch_steps, sample_rate)
     if stretch_factor != 1.0:
-        processed = apply_time_stretch(processed, rate=1.0 / stretch_factor, sample_rate=sample_rate)
+        processed = apply_time_stretch(
+            processed,
+            rate=1.0 / stretch_factor,
+            sample_rate=sample_rate,
+        )
     if gain_db:
         processed = apply_gain(processed, gain_db)
     return apply_limiter(processed)

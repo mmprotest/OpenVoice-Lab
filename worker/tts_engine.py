@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, TypeVar
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 
 import numpy as np
 import torch
-from qwen_tts import Qwen3TTSModel, VoiceClonePromptItem
-
 from model_manager import ModelManager
+from qwen_tts import Qwen3TTSModel, VoiceClonePromptItem
 
 logger = logging.getLogger("openvoice")
 T = TypeVar("T")
@@ -73,7 +71,9 @@ class TtsEngine:
         self._model_cache[key] = model
         return model
 
-    def get_model_for_backend(self, model_id: str, backend: str) -> Tuple[Qwen3TTSModel, str, Optional[str]]:
+    def get_model_for_backend(
+        self, model_id: str, backend: str
+    ) -> Tuple[Qwen3TTSModel, str, Optional[str]]:
         device, warning = self._resolve_device(backend)
         try:
             return self._get_model_for_device(model_id, device), device, warning

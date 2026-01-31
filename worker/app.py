@@ -16,15 +16,13 @@ from typing import Dict, Iterable, List, Optional, Tuple, Union
 import numpy as np
 import soundfile as sf
 import torch
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
-from pydantic import ConfigDict
-
-from model_manager import ModelManager
 from audio_utils import resample_audio
 from dsp_utils import apply_style_dsp
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
+from model_manager import ModelManager
 from prompt_storage import load_clone_prompt_safe, save_clone_prompt_safe
+from pydantic import BaseModel, ConfigDict
 from storage import Database, get_paths, read_json, write_json
 from text_pipeline import (
     BreakSegment,
@@ -37,7 +35,6 @@ from text_pipeline import (
     stitch_audio,
 )
 from tts_engine import TtsEngine
-
 
 APP_VERSION = "1.0.0"
 DEFAULT_SAMPLE_RATE = 24000
@@ -167,7 +164,11 @@ def _apply_text_pipeline_segments(
     return segments, None
 
 
-def _segment_instruct(base_style: Optional[str], rate: Optional[str], emphasis: Optional[str]) -> str:
+def _segment_instruct(
+    base_style: Optional[str],
+    rate: Optional[str],
+    emphasis: Optional[str],
+) -> str:
     parts = [part for part in (base_style or "").split(",") if part.strip()]
     if rate == "slow":
         parts.append("slow pace")
@@ -329,7 +330,8 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str,
                     continue
                 segment_style = _segment_instruct(request.style, segment.rate, segment.emphasis)
                 logger.info(
-                    "clone segment rate=%s emphasis=%s style=%s supports_instruct=%s supports_style=%s",
+                    "clone segment rate=%s emphasis=%s style=%s supports_instruct=%s "
+                    "supports_style=%s",
                     segment.rate,
                     segment.emphasis,
                     segment_style,
@@ -354,13 +356,17 @@ def _synthesize_chunks(request: TtsRequest) -> Tuple[List[np.ndarray], int, str,
                     except TypeError as exc:
                         if isinstance(prompt, list) and prompt and isinstance(prompt[0], dict):
                             raise RuntimeError(
-                                "Voice clone prompt reconstruction failed; "
-                                f"type mismatch: {exc}"
+                                f"Voice clone prompt reconstruction failed; type mismatch: {exc}"
                             ) from exc
                         raise
                     audio = wavs[0]
                     if not (supports_instruct or supports_style):
-                        audio = apply_style_dsp(audio, sample_rate_local, segment.rate, segment.emphasis)
+                        audio = apply_style_dsp(
+                            audio,
+                            sample_rate_local,
+                            segment.rate,
+                            segment.emphasis,
+                        )
                     audio_chunks_local.append(audio)
             return audio_chunks_local, sample_rate_local
 
@@ -412,7 +418,9 @@ async def system_info() -> Dict[str, object]:
         "cudaAvailable": cuda_available,
         "gpus": gpus,
         "backends": ["auto", "cpu", "cuda"],
-        "modelsSupported": [_camelize_keys(entry) for entry in model_manager.list_required_models()],
+        "modelsSupported": [
+            _camelize_keys(entry) for entry in model_manager.list_required_models()
+        ],
         "defaultSampleRate": DEFAULT_SAMPLE_RATE,
     }
 
@@ -562,7 +570,12 @@ async def voices_design(payload: VoiceDesignRequest) -> Dict[str, str]:
     design = engine.synthesize_voice_design(payload.description, payload.seed_text, payload.backend)
     preview_path = voice_path / "preview.wav"
     sf.write(str(preview_path), design.audio, design.sample_rate, subtype="PCM_16")
-    prompt = engine.create_clone_prompt((design.audio, design.sample_rate), payload.seed_text, payload.model_size, payload.backend)
+    prompt = engine.create_clone_prompt(
+        (design.audio, design.sample_rate),
+        payload.seed_text,
+        payload.model_size,
+        payload.backend,
+    )
     save_clone_prompt_safe(voice_path, prompt)
     return {"voiceId": voice_id}
 
@@ -659,7 +672,11 @@ async def tts_stream(request: TtsRequest):
                     )
                     audio = wavs[0]
                     if sample_rate_local != target_sample_rate:
-                        audio = resample_audio(audio, orig_sr=sample_rate_local, target_sr=target_sample_rate)
+                        audio = resample_audio(
+                            audio,
+                            orig_sr=sample_rate_local,
+                            target_sr=target_sample_rate,
+                        )
                     raw = _to_pcm_bytes(audio)
                     async for frame in _stream_frames(raw, target_sample_rate):
                         yield frame
@@ -682,7 +699,8 @@ async def tts_stream(request: TtsRequest):
                     continue
                 segment_style = _segment_instruct(request.style, segment.rate, segment.emphasis)
                 logger.info(
-                    "clone stream segment rate=%s emphasis=%s style=%s supports_instruct=%s supports_style=%s",
+                    "clone stream segment rate=%s emphasis=%s style=%s supports_instruct=%s "
+                    "supports_style=%s",
                     segment.rate,
                     segment.emphasis,
                     segment_style,
@@ -707,15 +725,23 @@ async def tts_stream(request: TtsRequest):
                     except TypeError as exc:
                         if isinstance(prompt, list) and prompt and isinstance(prompt[0], dict):
                             raise RuntimeError(
-                                "Voice clone prompt reconstruction failed; "
-                                f"type mismatch: {exc}"
+                                f"Voice clone prompt reconstruction failed; type mismatch: {exc}"
                             ) from exc
                         raise
                     audio = wavs[0]
                     if not (supports_instruct or supports_style):
-                        audio = apply_style_dsp(audio, sample_rate_local, segment.rate, segment.emphasis)
+                        audio = apply_style_dsp(
+                            audio,
+                            sample_rate_local,
+                            segment.rate,
+                            segment.emphasis,
+                        )
                     if sample_rate_local != target_sample_rate:
-                        audio = resample_audio(audio, orig_sr=sample_rate_local, target_sr=target_sample_rate)
+                        audio = resample_audio(
+                            audio,
+                            orig_sr=sample_rate_local,
+                            target_sr=target_sample_rate,
+                        )
                     raw = _to_pcm_bytes(audio)
                     async for frame in _stream_frames(raw, target_sample_rate):
                         yield frame

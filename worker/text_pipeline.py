@@ -51,7 +51,12 @@ def parse_ssml_lite(text: str) -> Tuple[str, List[SsmlHint]]:
         return content
 
     text = re.sub(r"<break\s+time=\"(.*?)\"\s*/>", _break, text)
-    text = re.sub(r"<prosody\s+rate=\"(slow|fast)\">(.*?)</prosody>", _prosody, text, flags=re.DOTALL)
+    text = re.sub(
+        r"<prosody\s+rate=\"(slow|fast)\">(.*?)</prosody>",
+        _prosody,
+        text,
+        flags=re.DOTALL,
+    )
     text = re.sub(
         r"<emphasis\s+level=\"(strong|moderate)\">(.*?)</emphasis>",
         _emphasis,
@@ -93,7 +98,10 @@ def parse_ssml_lite_segments(text: str) -> List[Segment]:
                 if rate_stack:
                     rate_stack.pop()
                 continue
-            emphasis_open = re.match(r"^<\s*emphasis\s+level\s*=\s*\"(moderate|strong)\"\s*>$", lower)
+            emphasis_open = re.match(
+                r"^<\s*emphasis\s+level\s*=\s*\"(moderate|strong)\"\s*>$",
+                lower,
+            )
             if emphasis_open:
                 emphasis_stack.append(emphasis_open.group(1))
                 continue
@@ -125,7 +133,7 @@ def parse_break_sentinels(text: str) -> List[Tuple[str, str]]:
     last_end = 0
     for match in pattern.finditer(text):
         if match.start() > last_end:
-            results.append(("text", text[last_end:match.start()]))
+            results.append(("text", text[last_end : match.start()]))
         results.append(("break", match.group(1)))
         last_end = match.end()
     if last_end < len(text):

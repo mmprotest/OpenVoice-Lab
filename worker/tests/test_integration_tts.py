@@ -1,8 +1,8 @@
 import os
-import pytest
-from fastapi.testclient import TestClient
 
+import pytest
 from app import app, model_manager
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.integration
@@ -38,7 +38,7 @@ def test_tts_streaming_chunks_if_model_present():
     client = TestClient(app)
     payload = {
         "voice_id": "preset::female-1",
-        "text": "Hello <break time=\"300ms\"/> world",
+        "text": 'Hello <break time="300ms"/> world',
         "language": "Auto",
         "style": None,
         "model_size": "0.6b",
