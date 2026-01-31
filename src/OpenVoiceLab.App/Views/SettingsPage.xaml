@@ -8,6 +8,11 @@
     <ScrollViewer>
         <StackPanel Spacing="12" Padding="24">
             <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" />
+            <StackPanel Spacing="4" Visibility="{x:Bind ViewModel.WorkerErrorVisibility}">
+                <TextBlock Text="{x:Bind ViewModel.WorkerErrorTitle}" FontSize="16" FontWeight="SemiBold" Foreground="DarkRed" />
+                <TextBlock Text="{x:Bind ViewModel.WorkerErrorMessage}" TextWrapping="Wrap" />
+                <Button Content="Open Logs Folder" Click="OnOpenLogsFolder" HorizontalAlignment="Left" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <ComboBox Header="Default Backend" Width="200" x:Name="BackendBox">
                     <ComboBoxItem Content="auto" />
@@ -29,6 +34,7 @@
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button Content="Delete all local data" Click="OnDeleteData" />
                 <Button Content="Refresh Engine Log" Click="OnRefreshLog" />
+                <Button Content="Open Logs Folder" Click="OnOpenLogsFolder" />
             </StackPanel>
             <TextBlock Text="Engine Log" FontSize="18" FontWeight="SemiBold" />
             <TextBox Text="{x:Bind ViewModel.EngineLog, Mode=OneWay}" AcceptsReturn="True" Height="240" TextWrapping="Wrap" />

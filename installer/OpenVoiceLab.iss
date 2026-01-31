@@ -10,7 +10,6 @@ OutputBaseFilename=OpenVoiceLab-Setup
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop icon"; Flags: unchecked
-Name: "removedata"; Description: "Remove user data"; Flags: unchecked
 
 [Files]
 Source: "{#SourcePath}\..\artifacts\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -20,5 +19,24 @@ Source: "{#SourcePath}\..\artifacts\worker\OpenVoiceLab.Worker\*"; DestDir: "{ap
 Name: "{group}\OpenVoiceLab"; Filename: "{app}\OpenVoiceLab.App.exe"
 Name: "{userdesktop}\OpenVoiceLab"; Filename: "{app}\OpenVoiceLab.App.exe"; Tasks: desktopicon
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{localappdata}\OpenVoiceLab"; Tasks: removedata
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  response: Integer;
+  dataDir: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    dataDir := ExpandConstant('{localappdata}\OpenVoiceLab');
+    response := MsgBox(
+      'Remove OpenVoiceLab user data (voices, models, logs) from ' + dataDir + '?',
+      mbConfirmation,
+      MB_YESNO
+    );
+    if response = IDYES then
+    begin
+      DelTree(dataDir, True, True, True);
+    end;
+  end;
+end;

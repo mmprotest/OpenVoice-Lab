@@ -44,4 +44,9 @@ public sealed partial class SettingsPage : Page
     {
         ViewModel.RefreshLog();
     }
+
+    private void OnOpenLogsFolder(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        ViewModel.OpenLogDirectory();
+    }
 }

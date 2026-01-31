@@ -6,11 +6,10 @@ namespace OpenVoiceLab.Tests;
 public class WorkerSupervisorTests
 {
     [Fact]
-    public void BuildHealthUrlUsesPort()
+    public void ParsesWorkerPortLine()
     {
-        var supervisor = new WorkerSupervisor();
-        var port = supervisor.FindFreePort(20000, 40000);
-        Assert.InRange(port, 1, 65535);
-        Assert.True(port >= 20000);
+        var parsed = WorkerSupervisor.TryParseWorkerPort("WORKER_PORT=25001", out var port);
+        Assert.True(parsed);
+        Assert.Equal(25001, port);
     }
 }

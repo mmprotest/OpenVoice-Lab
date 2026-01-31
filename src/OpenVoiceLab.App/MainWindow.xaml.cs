@@ -58,8 +58,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnClosed(object sender, WindowEventArgs args)
+    private async void OnClosed(object sender, WindowEventArgs args)
     {
-        AppServices.Current?.Worker.Stop();
+        if (AppServices.Current is { } services)
+        {
+            await services.Worker.StopAsync();
+        }
     }
 }
