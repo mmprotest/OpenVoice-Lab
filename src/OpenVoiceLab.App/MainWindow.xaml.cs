@@ -12,6 +12,7 @@ public sealed partial class MainWindow : Window
         WindowHelper.SetWindow(this);
         NavView.SelectionChanged += OnNavigationChanged;
         NavView.SelectedItem = NavView.MenuItems[0];
+        Closed += OnClosed;
     }
 
     private void OnNavigationChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -55,5 +56,10 @@ public sealed partial class MainWindow : Window
                 break;
             }
         }
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        AppServices.Current?.Worker.Stop();
     }
 }
