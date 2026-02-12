@@ -71,7 +71,7 @@ public class ApiClient
             {
                 if (!string.IsNullOrWhiteSpace(dataBuffer))
                 {
-                    var evt = JsonSerializer.Deserialize<ModelDownloadEvent>(dataBuffer, _jsonOptions);
+                    TryYieldEvent(dataBuffer, out var evt);
                     if (evt != null)
                     {
                         yield return evt;
@@ -87,6 +87,27 @@ public class ApiClient
             var payload = line[5..].TrimStart();
             dataBuffer = dataBuffer == null ? payload : $"{dataBuffer}\n{payload}";
         }
+        if (!string.IsNullOrWhiteSpace(dataBuffer))
+        {
+            TryYieldEvent(dataBuffer, out var evt);
+            if (evt != null)
+            {
+                yield return evt;
+            }
+        }
+    }
+
+    private bool TryYieldEvent(string payload, out ModelDownloadEvent? evt)
+    {
+        try
+        {
+            evt = JsonSerializer.Deserialize<ModelDownloadEvent>(payload, _jsonOptions);
+        }
+        catch (JsonException)
+        {
+            evt = null;
+        }
+        return evt != null;
     }
 
     public async Task<VoicesResponse> GetVoicesAsync(CancellationToken cancellationToken = default)
