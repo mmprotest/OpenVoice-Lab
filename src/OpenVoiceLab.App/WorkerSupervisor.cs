@@ -35,7 +35,7 @@ public class WorkerSupervisor
         {
             if (_stopping)
             {
-                return;
+                _stopping = false;
             }
             _port = 0;
             _portTcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -15,7 +15,7 @@ public sealed class AppServices
 
     public Models.PronunciationProfilesStore PronunciationProfiles { get; } = new();
 
-    private readonly TaskCompletionSource<ApiClient> _apiReady = new();
+    private TaskCompletionSource<ApiClient> _apiReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public AppServices()
     {
@@ -31,6 +31,7 @@ public sealed class AppServices
 
     public async Task InitializeAsync()
     {
+        _apiReady = new TaskCompletionSource<ApiClient>(TaskCreationOptions.RunContinuationsAsynchronously);
         Worker.Start();
         try
         {
